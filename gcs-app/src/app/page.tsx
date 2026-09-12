@@ -17,6 +17,7 @@ import {
   Radio,
   Rotate3D,
   ShieldCheck,
+  ShieldAlert,
   Thermometer,
   Volume2,
   VolumeX,
@@ -671,7 +672,8 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     if (!mount) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0xbcd7e8, 34, 200);
+    const flightFog = new THREE.Fog(0xbcd7e8, 34, 200);
+    scene.fog = flightFog;
 
     const camera = new THREE.PerspectiveCamera(42, mount.clientWidth / mount.clientHeight, 0.1, 600);
     camera.position.set(4.8, 3.2, 7.2);
@@ -680,6 +682,9 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.72;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.localClippingEnabled = true;
@@ -703,12 +708,12 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     let prevVm: "drone" | "engine" = viewRef.current;
     controls.addEventListener("start", () => { camTransition = 0; });
 
-    const keyLight = new THREE.DirectionalLight(0xfff2df, 2.3);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
     keyLight.position.set(10, 14, 6);
     keyLight.castShadow = true;
     scene.add(keyLight);
-    scene.add(new THREE.HemisphereLight(0xbfe3f5, 0x3d5a3a, 0.85));
-    scene.add(new THREE.AmbientLight(0x6f8ea8, 0.5));
+    scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x46505a, 0.62));
+    scene.add(new THREE.AmbientLight(0x87929c, 0.3));
 
     // (Hologram grid removed per design — open sky + farmland below.)
 
@@ -730,7 +735,8 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           gl_FragColor = vec4(c, 1.0);
         }`,
     });
-    scene.add(new THREE.Mesh(new THREE.SphereGeometry(240, 24, 16), skyMat));
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(240, 24, 16), skyMat);
+    scene.add(skyDome);
 
     // --- Ground far below (patchwork fields, scrolls past in flight) ---
     const fieldCanvas = document.createElement("canvas");
@@ -816,14 +822,51 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     navLight.position.set(2.8, 0.1, 0);
     drone.add(navLight);
 
-    // Flat factory-gray finish, no textures.
+    // Snow camouflage: matte white airframe with cool-gray upper/lower
+    // contrast, darker control surfaces, and separate metal components.
     const reaperMat = new THREE.MeshStandardMaterial({
-      color: 0x8f9599,
-      roughness: 0.6,
-      metalness: 0.05,
+      color: 0xe7ebee,
+      roughness: 0.88,
+      metalness: 0.04,
       emissive: new THREE.Color(0x000000),
       emissiveIntensity: 0,
     });
+    const upperBodyMat = new THREE.MeshStandardMaterial({
+      color: 0xc4ccd3,
+      roughness: 0.9,
+      metalness: 0.025,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+    });
+    const undersideMat = new THREE.MeshStandardMaterial({
+      color: 0xf5f7f8,
+      roughness: 0.94,
+      metalness: 0.02,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+    });
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x59636d,
+      roughness: 0.88,
+      metalness: 0.02,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+    });
+    const compositeMat = new THREE.MeshStandardMaterial({
+      color: 0xaeb8c1,
+      roughness: 0.9,
+      metalness: 0.01,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+    });
+    const propellerMat = new THREE.MeshStandardMaterial({
+      color: 0x252b31,
+      roughness: 0.5,
+      metalness: 0.48,
+      emissive: new THREE.Color(0x000000),
+      emissiveIntensity: 0,
+    });
+    const dronePaintMaterials = [reaperMat, upperBodyMat, undersideMat, panelMat, compositeMat, propellerMat];
 
     new OBJLoader().load(
       "/mq9-reaper.obj",
@@ -836,10 +879,35 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
         const s = maxDim > 0 ? 7.4 / maxDim : 0.394;
         obj.scale.setScalar(s);
         obj.position.set(-center.x * s, -center.y * s + 0.1, -center.z * s);
+        const airframeCenterY = 0.1;
         obj.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
-            mesh.material = reaperMat;
+            const partName = [child.name, child.parent?.name, child.parent?.parent?.name]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            const isPropeller = partName.includes("blade") || partName.includes("propeller") || partName.includes("gearbox");
+            const isDarkPanel = partName.includes("flap") || partName.includes("aileron") || partName.includes("rudder") ||
+              partName.includes("elevator") || partName.includes("antenna") || partName.includes("pylon");
+            const isLightComposite = partName.includes("sensor") || partName.includes("light") || partName.includes("jaw");
+            const bounds = new THREE.Box3().setFromObject(mesh);
+            const meshCenter = bounds.getCenter(new THREE.Vector3());
+            const isUpperAirframe = meshCenter.y >= airframeCenterY;
+            const paintedMaterial = isPropeller
+              ? propellerMat
+              : isDarkPanel
+                ? panelMat
+                : isLightComposite
+                  ? compositeMat
+                  : isUpperAirframe
+                    ? upperBodyMat
+                    : undersideMat;
+            // Replace every source material slot, including OBJ material
+            // arrays, so no unpainted upper or underside surfaces remain.
+            mesh.material = Array.isArray(mesh.material)
+              ? mesh.material.map(() => paintedMaterial)
+              : paintedMaterial;
             mesh.castShadow = true;
           }
           const partName = child.name.toLowerCase();
@@ -869,6 +937,128 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     const cadEngine = new THREE.Group();
     engine.add(cadEngine);
     const realEngineMaterials: THREE.MeshStandardMaterial[] = [];
+    const engineMechanical = new THREE.Group();
+    const crankshaft = new THREE.Group();
+    const propShaft = new THREE.Group();
+    const reductionGear = new THREE.Group();
+    const flywheel = new THREE.Group();
+    const pistons: THREE.Mesh[] = [];
+    const intakeValves: THREE.Mesh[] = [];
+    const exhaustValves: THREE.Mesh[] = [];
+    const intakeRockers: THREE.Mesh[] = [];
+    const exhaustRockers: THREE.Mesh[] = [];
+    const sparkPlugs: THREE.Mesh[] = [];
+    const sparkMaterials: THREE.MeshStandardMaterial[] = [];
+    const cylinderBanks = new THREE.Group();
+    const belt = new THREE.Mesh(
+      new THREE.TorusGeometry(0.22, 0.025, 8, 40),
+      new THREE.MeshStandardMaterial({ color: 0x1b2228, roughness: 0.72, metalness: 0.18 }),
+    );
+    const engineSilver = new THREE.MeshStandardMaterial({ color: 0xb8c2ca, roughness: 0.38, metalness: 0.82 });
+    const engineDark = new THREE.MeshStandardMaterial({ color: 0x1d252c, roughness: 0.5, metalness: 0.66 });
+    const engineCopper = new THREE.MeshStandardMaterial({ color: 0xd47b3b, roughness: 0.42, metalness: 0.6 });
+    const engineRubber = new THREE.MeshStandardMaterial({ color: 0x151a1e, roughness: 0.9, metalness: 0.02 });
+    const engineHeat = new THREE.MeshStandardMaterial({ color: 0x73808a, roughness: 0.55, metalness: 0.72 });
+    let shellMeshIndex = 0;
+    const shellColors = [0x77838c, 0x9da8af, 0x59656d, 0xb8c2ca, 0x6d7880, 0x8f5a3c];
+
+    // The supplied OBJ has no meaningful component names, so the moving
+    // mechanism is deliberately built as separate, inspectable parts.
+    const crankCore = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.55, 16), engineDark);
+    crankCore.rotation.z = Math.PI / 2;
+    crankshaft.add(crankCore);
+    const crankWebGeometry = new THREE.BoxGeometry(0.16, 0.22, 0.06);
+    [-0.52, -0.18, 0.18, 0.52].forEach((x, index) => {
+      const web = new THREE.Mesh(crankWebGeometry, engineCopper);
+      web.position.set(x, 0, index % 2 === 0 ? 0.08 : -0.08);
+      crankshaft.add(web);
+    });
+    const propHub = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.18, 20), engineSilver);
+    propHub.rotation.z = Math.PI / 2;
+    propShaft.add(propHub);
+    const propBladeGeometry = new THREE.BoxGeometry(0.72, 0.035, 0.07);
+    for (let i = 0; i < 3; i++) {
+      const blade = new THREE.Mesh(propBladeGeometry, engineDark);
+      blade.rotation.x = (Math.PI * 2 * i) / 3;
+      blade.position.x = 0.16;
+      propShaft.add(blade);
+    }
+    propShaft.position.x = 0.86;
+
+    const flywheelDisk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.08, 32), engineDark);
+    flywheelDisk.rotation.z = Math.PI / 2;
+    flywheel.add(flywheelDisk);
+    flywheel.position.x = -0.76;
+
+    const gearboxHousing = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.18, 24), engineSilver);
+    gearboxHousing.rotation.z = Math.PI / 2;
+    reductionGear.add(gearboxHousing);
+    const gearboxGear = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.035, 8, 24), engineCopper);
+    gearboxGear.rotation.y = Math.PI / 2;
+    gearboxGear.position.x = 0.03;
+    reductionGear.add(gearboxGear);
+    reductionGear.position.x = 0.68;
+
+    // Rotax 912-style opposed four-cylinder layout. Piston travel is
+    // calculated from crank angle; valves run at half crankshaft speed.
+    const cylinderOffsets = [-0.42, -0.14, 0.14, 0.42];
+    cylinderOffsets.forEach((x, index) => {
+      const side = index % 2 === 0 ? -1 : 1;
+      const z = side * 0.23;
+      const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.38, 16), engineHeat);
+      cylinder.rotation.x = Math.PI / 2;
+      cylinder.position.set(x, 0, z);
+      cylinderBanks.add(cylinder);
+
+      const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.12, 14), engineSilver);
+      piston.rotation.x = Math.PI / 2;
+      piston.position.set(x, 0, z + side * 0.17);
+      pistons.push(piston);
+      cylinderBanks.add(piston);
+
+      const intake = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.12, 10), engineCopper);
+      intake.rotation.x = Math.PI / 2;
+      intake.position.set(x - 0.06, 0.08, z + side * 0.2);
+      intakeValves.push(intake);
+      cylinderBanks.add(intake);
+
+      const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.12, 10), engineCopper);
+      exhaust.rotation.x = Math.PI / 2;
+      exhaust.position.set(x + 0.06, 0.08, z + side * 0.2);
+      exhaustValves.push(exhaust);
+      cylinderBanks.add(exhaust);
+
+      const intakeRocker = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.035), engineCopper);
+      intakeRocker.position.set(x - 0.06, 0.16, z + side * 0.2);
+      intakeRockers.push(intakeRocker);
+      cylinderBanks.add(intakeRocker);
+
+      const exhaustRocker = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.035), engineCopper);
+      exhaustRocker.position.set(x + 0.06, 0.16, z + side * 0.2);
+      exhaustRockers.push(exhaustRocker);
+      cylinderBanks.add(exhaustRocker);
+
+      const cylinderSparkMaterial = new THREE.MeshStandardMaterial({
+        color: 0xf4c56b,
+        roughness: 0.32,
+        metalness: 0.35,
+        emissive: new THREE.Color(0x000000),
+        emissiveIntensity: 0,
+      });
+      const sparkPlug = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.09, 10), cylinderSparkMaterial);
+      sparkPlug.rotation.x = Math.PI / 2;
+      sparkPlug.position.set(x, 0.12, z + side * 0.22);
+      sparkPlugs.push(sparkPlug);
+      sparkMaterials.push(cylinderSparkMaterial);
+      cylinderBanks.add(sparkPlug);
+    });
+    belt.rotation.y = Math.PI / 2;
+    belt.position.x = -0.76;
+    engineMechanical.add(cylinderBanks, crankshaft, propShaft, reductionGear, flywheel, belt);
+    engineMechanical.position.set(0, 0.05, 0);
+    engineMechanical.scale.setScalar(1.15);
+    cadEngine.add(engineMechanical);
+
     new OBJLoader().load(
       "/engine.obj",
       (loadedObj) => {
@@ -884,8 +1074,10 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
             if (mesh.geometry) mesh.geometry.computeVertexNormals();
+            const shellColor = shellColors[shellMeshIndex % shellColors.length];
+            shellMeshIndex += 1;
             const mat = new THREE.MeshStandardMaterial({
-              color: 0x93a4b0,
+              color: shellColor,
               metalness: 0.68,
               roughness: 0.32,
               emissive: new THREE.Color(0x000000),
@@ -910,6 +1102,27 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     engine.visible = false;
     scene.add(engine);
 
+    // Neutral studio lighting for the isolated engine inspection view.
+    // Multiple broad sources prevent the white background from turning the
+    // shaded sides of the Rotax shell into unreadable silhouettes.
+    const engineLights = new THREE.Group();
+    const engineFill = new THREE.HemisphereLight(0xffffff, 0xd9e0e6, 1.9);
+    engineLights.add(engineFill);
+    const engineLightPositions: Array<[number, number, number, number]> = [
+      [3.5, 4.5, 3.5, 2.2],
+      [-3.5, 3.2, 2.5, 1.7],
+      [2.5, 1.2, -3.8, 1.9],
+      [-2.8, 0.8, -3.2, 1.5],
+      [0, -2.5, 1.5, 0.9],
+    ];
+    engineLightPositions.forEach(([x, y, z, intensity]) => {
+      const light = new THREE.PointLight(0xffffff, intensity, 12);
+      light.position.set(x, y, z);
+      engineLights.add(light);
+    });
+    engineLights.visible = false;
+    scene.add(engineLights);
+
     // --- Telemetry ring ---
     const telemetryArc = new THREE.Mesh(
       new THREE.TorusGeometry(2.75, 0.006, 8, 96, Math.PI * 1.55),
@@ -932,6 +1145,15 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
       const showEngine = vm === "engine";
       drone.visible = !showEngine;
       engine.visible = showEngine;
+      engineLights.visible = showEngine;
+      // The engine is an isolated inspection/test-stand view: no sky,
+      // ground, clouds, wind streaks, flight ring, or flight fog.
+      skyDome.visible = !showEngine;
+      ground.visible = !showEngine;
+      telemetryArc.visible = !showEngine;
+      streakMesh.visible = !showEngine;
+      clouds.forEach((puff) => { puff.visible = !showEngine; });
+      scene.fog = showEngine ? null : flightFog;
       // Camera auto-frame: brief glide after a view switch, then full manual control
       if (vm !== prevVm) {
         prevVm = vm;
@@ -949,23 +1171,52 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
       camera.lookAt(controls.target);
       // Sky life runs in every view: clouds drift past with airspeed
       const ias = isLiveNow ? Math.max(live.airspeed, 0) : 18;
-      clouds.forEach((puff, i) => {
-        puff.position.x -= (1.2 + ias * 0.1) * 0.016 * (1 + (i % 3) * 0.3);
-        if (puff.position.x < -75) {
-          puff.position.x = 75;
-          puff.position.z = (Math.random() - 0.5) * 120;
-        }
-      });
-      groundTex.offset.x += 0.002 + ias * 0.00012; // world flows -X past the +X-facing nose
+      if (!showEngine) {
+        clouds.forEach((puff, i) => {
+          puff.position.x -= (1.2 + ias * 0.1) * 0.016 * (1 + (i % 3) * 0.3);
+          if (puff.position.x < -75) {
+            puff.position.x = 75;
+            puff.position.z = (Math.random() - 0.5) * 120;
+          }
+        });
+        groundTex.offset.x += 0.002 + ias * 0.00012; // world flows -X past the +X-facing nose
+      }
 
       if (showEngine) {
-        // Real Rotax shell: RPM tremor + vibration shake, slow inspection
-        // turntable, and fault-driven heat glow across the casing.
+        // Rotax shell plus physically coupled crank, pistons, valves, prop
+        // shaft, and belt. RPM is converted to angular velocity rather than
+        // using arbitrary frame-rate animation.
         const t = frame * (isLiveNow ? 1 : 0.25);
         const tremor = isLiveNow ? 0.004 + (live.rpm / 5500) * 0.012 : 0.002;
         engine.position.x = Math.sin(t * 18) * live.vibration * 0.12 + Math.sin(t * 61) * tremor;
         engine.position.y = 0.15 + Math.sin(t * 22) * live.vibration * 0.06 + Math.sin(t * 53) * tremor;
         cadEngine.rotation.y = Math.sin(frame * 0.35) * 0.3; // inspection turntable
+        const rpm = isLiveNow ? Math.max(0, live.rpm) : 900;
+        const throttle = isLiveNow ? Math.max(0, Math.min(100, live.throttle)) / 100 : 0.28;
+        const crankStep = (rpm * Math.PI * 2) / 60 * 0.016;
+        crankshaft.rotation.x += crankStep;
+        propShaft.rotation.x += crankStep / 2; // Rotax reduction gearbox
+        reductionGear.rotation.x += crankStep / 2;
+        flywheel.rotation.x += crankStep;
+        belt.rotation.z += crankStep * 0.52;
+        const crankAngle = frame * (rpm * Math.PI * 2 / 60);
+        const firingOffsets = [0, Math.PI, Math.PI * 0.5, Math.PI * 1.5];
+        pistons.forEach((piston, index) => {
+          const phase = crankAngle + firingOffsets[index];
+          const travel = (Math.cos(phase) * 0.07 + 0.07) * (0.28 + throttle * 0.72);
+          const side = index % 2 === 0 ? -1 : 1;
+          piston.position.z = side * (0.23 + side * travel);
+          const camPhase = phase * 0.5;
+          const intakeLift = Math.max(0, Math.sin(camPhase)) * 0.045 * (0.35 + throttle * 0.65);
+          const exhaustLift = Math.max(0, Math.sin(camPhase + Math.PI)) * 0.04 * (0.35 + throttle * 0.65);
+          intakeValves[index].position.y = 0.08 + intakeLift;
+          exhaustValves[index].position.y = 0.08 + exhaustLift;
+          intakeRockers[index].rotation.z = intakeLift * 6;
+          exhaustRockers[index].rotation.z = -exhaustLift * 6;
+          const firingPulse = Math.max(0, Math.sin(phase));
+          sparkMaterials[index].emissive.setHex(0xff7a18);
+          sparkMaterials[index].emissiveIntensity = firingPulse > 0.86 ? (firingPulse - 0.86) * 7 : 0;
+        });
         // Real shell fault glow
         if (realEngineMaterials.length > 0) {
           const faultActive = live.fault !== "none";
@@ -1028,13 +1279,18 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           if (propellerBlades.length > 0) {
             propellerPivot.rotation.x += (0.18 + load * 0.8) * (attackRun ? 1.35 : 1);
           }
-          // Whole-model fault tint on the Reaper shell
+          // Whole-model fault tint on all painted drone surfaces.
           if (live.fault !== "none") {
-            reaperMat.emissive.setHex(0xff1208);
-            reaperMat.emissiveIntensity = 0.45 + Math.abs(Math.sin(frame * 7.2)) * 1.0;
+            const faultIntensity = 0.3 + Math.abs(Math.sin(frame * 7.2)) * 0.7;
+            dronePaintMaterials.forEach((material) => {
+              material.emissive.setHex(0xff1208);
+              material.emissiveIntensity = faultIntensity;
+            });
           } else {
-            reaperMat.emissive.setHex(0x000000);
-            reaperMat.emissiveIntensity = 0;
+            dronePaintMaterials.forEach((material) => {
+              material.emissive.setHex(0x000000);
+              material.emissiveIntensity = 0;
+            });
           }
           streakMesh.visible = true;
           for (let i = 0; i < STREAKS; i++) {
@@ -1058,8 +1314,10 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           drone.scale.setScalar(1);
           navLight.color.setHex(0x22d3ee);
           navLight.intensity = 0.35;
-          reaperMat.emissive.setHex(0x000000);
-          reaperMat.emissiveIntensity = 0;
+          dronePaintMaterials.forEach((material) => {
+            material.emissive.setHex(0x000000);
+            material.emissiveIntensity = 0;
+          });
           streakMesh.visible = false;
           telemetryArc.rotation.z += 0.001;
         }
@@ -1087,7 +1345,13 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     };
   }, []);
 
-  return <div ref={mountRef} className={styles.sceneCanvas} aria-label="3D MALE UAV digital twin simulation" />;
+  return (
+    <div
+      ref={mountRef}
+      className={`${styles.sceneCanvas} ${viewMode === "engine" ? styles.engineCanvas : ""}`}
+      aria-label="3D MALE UAV digital twin simulation"
+    />
+  );
 }
 
 function MetricBar({ label, value, unit, max, tone = "normal" }: { label: string; value: number; unit: string; max: number; tone?: "normal" | "warn" | "danger" }) {
@@ -2350,42 +2614,51 @@ export default function Home() {
 
       {/* Flight Control, Geofence & Failsafe Panel */}
       <section className={styles.flightPanel} style={{ display: showFlightControl ? undefined : "none" }}>
-        <div className={styles.panelTitle}>
-          <Navigation size={18} />
-          <h2>Flight control, geofence &amp; failsafe</h2>
+        <div className={styles.flightHeader}>
+          <div className={styles.flightHeaderTitle}>
+            <span className={styles.sectionEyebrow}>LIVE FLIGHT SYSTEMS</span>
+            <div className={styles.panelTitle}>
+              <Navigation size={18} />
+              <h2>Flight Control <span>·</span> Geofence <span>·</span> Failsafe</h2>
+            </div>
+          </div>
+          <div className={`${styles.systemState} ${display?.flightMode === "DESTROYED" ? styles.systemDanger : display?.flightMode === "RTL" || display?.gps === "jammed" ? styles.systemWarn : styles.systemGood}`}>
+            <span className={styles.stateDot} />
+            {display?.flightMode === "DESTROYED" ? "AIRFRAME LOST" : display?.flightMode === "RTL" ? "RTL ACTIVE" : display?.gps === "jammed" ? "GPS DEGRADED" : "SYSTEM NOMINAL"}
+          </div>
         </div>
         {!isLive || !display ? (
           <div className={styles.emptyState}>Awaiting live backend stream for flight data.</div>
         ) : (
           <>
             {/* Real-time weather display */}
-            <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+            <div className={styles.flightSummary}>
+              <div className={styles.summaryCard}>
                 <CloudLightning size={16} style={{ color: display.missionMode === "ATTACK" ? "var(--red)" : "var(--cyan)" }} />
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>MISSION MODE</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: display.missionMode === "ATTACK" ? "var(--red)" : "var(--cyan)" }}>
+                  <span>MISSION MODE</span>
+                  <strong style={{ color: display.missionMode === "ATTACK" ? "var(--red)" : "var(--cyan)" }}>
                     {display.missionMode}
-                  </div>
+                  </strong>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+              <div className={styles.summaryCard}>
                 <Wind size={16} style={{ color: "var(--cyan)" }} />
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>WIND</div>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  <span>LIVE WIND</span>
+                  <strong>
                   {(weather?.windSpeed ?? display.windSpeed).toFixed(0)} kt from {(weather?.windDirection ?? display.windFrom).toFixed(0)}° ({display.headwind >= 0 ? "+" : ""}{display.headwind.toFixed(0)} kt hw)
-                  </div>
-                <div style={{ fontSize: 10, opacity: 0.6 }}>{weather?.source ?? display.wxSource}{weather ? ` · ${new Date(weather.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+                  </strong>
+                  <small>{weather?.source ?? display.wxSource}{weather ? ` · ${new Date(weather.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</small>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+              <div className={styles.summaryCard}>
                 <CloudRain size={16} style={{ color: "var(--cyan)" }} />
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>TEMP / ALT</div>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  <span>TEMP / ALTITUDE</span>
+                  <strong>
                     {display.altitude.toFixed(0)}m · {(weather?.temperature ?? ((display.altitude * 0.0065) - 15)).toFixed(1)}°C · rain {weather?.precipitation.toFixed(1) ?? "0.0"}mm
-                  </div>
+                  </strong>
                 </div>
               </div>
             </div>
@@ -2411,45 +2684,47 @@ export default function Home() {
               {/* Dark mode map with 3D drone synchronization */}
               <div className={styles.mapWrap}>
                 <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} />
-                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
-                    onClick={() => { void apiPost("/mission/target").catch(() => undefined); }}>
+                <div className={styles.mapFooter}>
+                  <button
+                    type="button"
+                    className={styles.btnGhost}
+                    onClick={() => { void apiPost("/mission/target").catch(() => undefined); }}
+                  >
                     Clear target
                   </button>
-                  <span style={{ fontSize: 11, opacity: 0.75, alignSelf: "center" }}>
+                  <span>
                     {display.targetLat != null ? `Target ${display.targetLat.toFixed(4)}, ${display.targetLon!.toFixed(4)}${display.targetReached ? " — reached, orbiting" : ""}` : "No destination set"}
                     {' · '}Home {display.distHome.toFixed(1)} km
                   </span>
                 </div>
               </div>
-              <div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <div className={styles.flightRail}>
+                <div className={styles.flightVitals}>
                   <Speedo ias={display.airspeed} gs={display.groundSpeed} />
-                  <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                    <div>Fuel <strong>{display.fuelL.toFixed(1)} L ({display.fuelPct.toFixed(0)}%)</strong></div>
-                    <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 4, height: 8, width: 150, overflow: "hidden" }}>
+                  <div className={styles.flightReadouts}>
+                    <div><span>FUEL</span><strong>{display.fuelL.toFixed(1)} L · {display.fuelPct.toFixed(0)}%</strong></div>
+                    <div className={styles.fuelTrack}>
                       <div style={{ height: "100%", width: `${Math.min(100, display.fuelPct)}%`, background: display.fuelPct > 20 ? "var(--green)" : "var(--red)" }} />
                     </div>
-                    <div>GPS <strong style={{ color: display.gps === "jammed" ? "var(--red)" : "var(--green)" }}>{display.gps.toUpperCase()}</strong>{display.gps === "jammed" ? ` · INS drift +${display.insDrift.toFixed(1)} km` : ""}</div>
-                    <div>Mode <strong>{display.missionMode}</strong> · fence <strong>{display.fenceKm.toFixed(0)} km</strong></div>
-                    <div>Geofence <strong>{display.outsideFence ? "EXCEEDED" : "ACTIVE"}</strong> · {display.flightMode}</div>
+                    <div><span>GPS / INS</span><strong style={{ color: display.gps === "jammed" ? "var(--red)" : "var(--green)" }}>{display.gps.toUpperCase()}</strong>{display.gps === "jammed" ? ` · drift +${display.insDrift.toFixed(1)} km` : ""}</div>
+                    <div><span>FLIGHT MODE</span><strong>{display.flightMode}</strong></div>
+                    <div><span>GEOFENCE</span><strong className={display.outsideFence ? styles.readoutDanger : styles.readoutGood}>{display.outsideFence ? "EXCEEDED" : "ACTIVE"} · {display.fenceKm.toFixed(0)} km</strong></div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                <div className={styles.commandGrid}>
+                  <button type="button" className={styles.commandButton}
                     onClick={() => void apiPost(`/mission/mode?mode=${display.missionMode === "SURVEILLANCE" ? "ATTACK" : "SURVEILLANCE"}`).catch(() => undefined)}>
-                    Go {display.missionMode === "SURVEILLANCE" ? "ATTACK (cross fence)" : "SURVEILLANCE (hold fence)"}
+                    <CloudLightning size={14} /> {display.missionMode === "SURVEILLANCE" ? "Attack mode" : "Surveillance mode"}
                   </button>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                  <button type="button" className={styles.commandButton}
                     onClick={() => void apiPost(`/autopilot?enabled=${!display.autopilot}`).catch(() => undefined)}>
-                    Autothrottle {display.autopilot ? "ON" : "OFF"}
+                    <Gauge size={14} /> Autothrottle {display.autopilot ? "ON" : "OFF"}
                   </button>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                  <button type="button" className={`${styles.commandButton} ${styles.commandWarn}`}
                     onClick={() => void apiPost("/mission/rtl").then(() => pushToast("CAUTION", "RTL commanded", "Returning to launch.", 6000)).catch(() => undefined)}>
-                    RTL now
+                    <Rotate3D size={14} /> Return to launch
                   </button>
-                  <button type="button" className={styles.btnGhost}
-                    style={{ padding: "4px 10px", fontSize: 11, borderColor: destructArmed ? "var(--red)" : undefined, color: destructArmed ? "var(--red)" : undefined }}
+                  <button type="button" className={`${styles.commandButton} ${styles.commandDanger} ${destructArmed ? styles.commandArmed : ""}`}
                     onClick={() => {
                       if (!destructArmed) {
                         setDestructArmed(true);
@@ -2461,18 +2736,18 @@ export default function Home() {
                           .catch(() => pushToast("CAUTION", "Destruct rejected", "Backend unreachable.", 5000));
                       }
                     }}>
-                    {destructArmed ? "CONFIRM destruct" : "Self-destruct"}
+                    <ShieldAlert size={14} /> {destructArmed ? "Confirm destruct" : "Self-destruct"}
                   </button>
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11 }}>
-                  <span style={{ opacity: 0.75 }}>Demo chaos:</span>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                <div className={styles.chaosRow}>
+                  <span>SIMULATION INJECTORS</span>
+                  <button type="button" className={styles.btnGhost}
                     onClick={() => void apiPost("/mission/event?kind=gps_jam").catch(() => undefined)}>Jam GPS</button>
-                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                  <button type="button" className={styles.btnGhost}
                     onClick={() => void apiPost("/mission/event?kind=gps_clear").catch(() => undefined)}>Clear GPS</button>
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4 }}>Autopilot event feed (backend)</div>
+                <div className={styles.eventFeed}>
+                  <div className={styles.feedTitle}>AUTOPILOT EVENT FEED <span>BACKEND</span></div>
                   {display.events.length === 0 ? (
                     <div style={{ fontSize: 12, opacity: 0.6 }}>No events yet this sortie.</div>
                   ) : (

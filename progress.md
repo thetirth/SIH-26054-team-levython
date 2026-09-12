@@ -50,6 +50,13 @@ This document tracks the ongoing development of the AI-Enabled Real-Time Digital
 - Verified the **edge stage (physics features + Mahalanobis AD, a few KB) runs in ~14 ms**, well within the 100 ms budget for a 10 Hz ECU; the full pipeline (RF-300 classifier + HGB RUL) serves in ~66 ms asynchronously at the GCS.
 - Serving uses **OOD abstention**: inputs beyond the worst training-fault extremes are declined (physical twin stays authoritative) instead of emitting an untrustworthy diagnosis.
 
+## ✅ Phase 9: Flight Operations (autonomy layer)
+**Status: COMPLETED**
+- Real-time navigation: lat/lon/heading integration, wind (wander+gusts) with **autothrottle** (tailwind eases off, headwind powers up to hold target IAS), click-to-set destination with 5°/s guidance, arrival orbits, real OSM map + speedometer in GCS.
+- **Geofence**: surveillance missions hard-hold inside the launch radius (attack missions may cross, logged).
+- **Failsafes**: fuel-low/GPS-jam/critical faults trigger RTL with range check; impossible RTL escalates to self-destruct sanitize; recovery latches at launch; full backend event feed drives operator toasts.
+- **Operator-approved maintenance**: non-critical fixes propose and wait for ACCEPT (applied repairs measurably heal the sim); critical thermal faults auto-fix ASAP. All behaviors covered by `test_backend_ops.py` (8/8 PASS).
+
 ## ✅ Phase 8: Deliverables Package
 **Status: COMPLETED**
 - Generated a formal **Failure Mode and Effects Analysis (FMEA)** table (`fmea_table.py`) with computed RPN scores.
