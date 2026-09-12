@@ -706,7 +706,19 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     // instantly to user input, so it never fights manual orbiting.
     let camTransition = 0;
     let prevVm: "drone" | "engine" = viewRef.current;
-    controls.addEventListener("start", () => { camTransition = 0; });
+    
+    let userInteracting = false;
+    let interactionTimeout: any = null;
+    controls.addEventListener("start", () => { 
+      camTransition = 0; 
+      userInteracting = true;
+      if (interactionTimeout) clearTimeout(interactionTimeout);
+    });
+    controls.addEventListener("end", () => {
+      interactionTimeout = setTimeout(() => { 
+        userInteracting = false; 
+      }, 3000); // 3 second delay before smoothly returning to auto-follow
+    });
 
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
     keyLight.position.set(10, 14, 6);
@@ -737,6 +749,9 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     });
     const skyDome = new THREE.Mesh(new THREE.SphereGeometry(240, 24, 16), skyMat);
     scene.add(skyDome);
+
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
 
     // --- Ground far below (patchwork fields, scrolls past in flight) ---
     const fieldCanvas = document.createElement("canvas");
@@ -770,7 +785,7 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -26;
-    scene.add(ground);
+    worldGroup.add(ground);
 
     // --- Clouds (drifting puffs the UAV flies past) ---
     const clouds: THREE.Group[] = [];
@@ -786,7 +801,7 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
         puff.add(m);
       }
       puff.position.set((Math.random() - 0.5) * 140, 8 + Math.random() * 15, (Math.random() - 0.5) * 120);
-      scene.add(puff);
+      worldGroup.add(puff);
       clouds.push(puff);
     }
 
@@ -797,7 +812,7 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
       new THREE.MeshBasicMaterial({ color: 0xeaf7ff, transparent: true, opacity: 0.5 }),
       STREAKS
     );
-    scene.add(streakMesh);
+    worldGroup.add(streakMesh);
     const streakData: Array<{ x: number; y: number; z: number; s: number }> = [];
     for (let i = 0; i < STREAKS; i++) {
       streakData.push({ x: (Math.random() - 0.5) * 28, y: -2 + Math.random() * 7, z: (Math.random() - 0.5) * 18, s: 0.7 + Math.random() * 0.6 });
@@ -1134,6 +1149,9 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
 
     let frame = 0;
     let raf = 0;
+    let visualHeading = telemetryRef.current.heading;
+    let visualBank = 0;
+    
     const animate = () => {
       frame += 0.016;
       const live = telemetryRef.current;
@@ -1161,12 +1179,24 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
       }
       const targetDrone = new THREE.Vector3(-0.35, 0.12, 0);
       const targetEngine = new THREE.Vector3(0, 0.12, 0);
+      
+      // Calculate dynamic chase cam position based on drone's visual heading.
+      const currentHeadingRad = (visualHeading || 90) * Math.PI / 180;
+      const currentSceneYaw = -currentHeadingRad + Math.PI / 2;
+      
       const camDrone = new THREE.Vector3(4.8, 3.2, 7.2);
+      camDrone.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentSceneYaw);
+      
       const camEngine = new THREE.Vector3(1.85, 1.15, 1.85);
+      
       if (camTransition > 0) {
         camTransition -= 0.016;
         controls.target.lerp(showEngine ? targetEngine : targetDrone, 0.08);
         camera.position.lerp(showEngine ? camEngine : camDrone, 0.06);
+      } else if (!userInteracting && !showEngine && isLiveNow) {
+        // Continuous smooth auto-follow for flight view
+        controls.target.lerp(targetDrone, 0.04);
+        camera.position.lerp(camDrone, 0.02);
       }
       camera.lookAt(controls.target);
       // Sky life runs in every view: clouds drift past with airspeed
@@ -1252,11 +1282,22 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           if (live.phase === "CLIMB") phasePitch = 0.1;
           else if (live.phase === "DESCENT") phasePitch = -0.1;
 
+          // Smooth the 10Hz telemetry heading into a 60Hz visual heading for animation
+          let deltaHeading = live.heading - visualHeading;
+          while (deltaHeading > 180) deltaHeading -= 360;
+          while (deltaHeading < -180) deltaHeading += 360;
+          
+          visualHeading += deltaHeading * 0.04;
+          
+          // Bank (roll) proportional to the turn error. Right turn (delta > 0) -> right bank.
+          const targetBank = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, (deltaHeading * Math.PI / 180) * 1.8));
+          visualBank += (targetBank - visualBank) * 0.06;
+
           drone.rotation.z = Math.sin(frame * 1.4) * 0.08 + (load - 0.62) * 0.22 + phasePitch;
-          drone.rotation.x = Math.sin(frame * 0.9) * 0.035;
+          drone.rotation.x = visualBank + Math.sin(frame * 0.9) * 0.035;
           // The same heading and flight mode that drive the Leaflet marker
           // drive the model, keeping map and digital twin orientation aligned.
-          const headingRad = (live.heading * Math.PI) / 180;
+          const headingRad = (visualHeading * Math.PI) / 180;
           // Heading is the ground-track direction. Apply a bounded crab
           // correction from live wind so the nose/propeller faces into the
           // relative wind without breaking map-to-model synchronization.
@@ -1267,10 +1308,15 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           const returning = live.flightMode === "RTL" || live.flightMode === "RECOVERED";
           const destroyed = live.flightMode === "DESTROYED";
           // Leaflet/telemetry heading: 0° = north, 90° = east. The
-          // normalized OBJ nose is +X, so compass heading maps to yaw
-          // heading - 90° in Three.js (not heading directly).
-          const sceneYaw = headingRad - Math.PI / 2 + crabAngle;
+          // normalized OBJ nose is +X. Compass heading increases clockwise,
+          // but Three.js Y-axis rotation is counter-clockwise. We negate
+          // the heading to align the 3D model with the map correctly.
+          const sceneYaw = -headingRad + Math.PI / 2 + crabAngle;
+          
           drone.rotation.y = sceneYaw + Math.sin(frame * (attackRun ? 4.2 : 0.55)) * (attackRun ? 0.12 : 0.06);
+          // Rotate the world elements (ground, clouds, wind) to flow exactly against the heading
+          worldGroup.rotation.y = sceneYaw;
+          
           drone.position.y = Math.sin(frame * (returning ? 2.4 : 1.1)) * (returning ? 0.14 : 0.08);
           drone.position.x = attackRun ? Math.sin(frame * 2.6) * 0.08 : 0;
           drone.scale.setScalar(destroyed ? 0.98 : attackRun ? 1.02 + Math.abs(Math.sin(frame * 5)) * 0.025 : 1);
@@ -1309,6 +1355,7 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
           telemetryArc.rotation.z += 0.004 + live.anomaly * 0.012;
         } else {
           drone.rotation.y = Math.sin(frame * 0.2) * 0.08;
+          worldGroup.rotation.y = 0;
           drone.position.y = Math.sin(frame * 0.6) * 0.04;
           drone.position.x = 0;
           drone.scale.setScalar(1);
@@ -1419,11 +1466,28 @@ function LegacyFlightMap({ telemetry, launch, onTarget }: {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
+      // Force Leaflet to recalculate the map viewport now that the container
+      // has been painted. We also use a ResizeObserver to catch any layout
+      // shifts that cause gray square chunks during tile loading.
+      map.invalidateSize();
+      setTimeout(() => { mapRef.current?.invalidateSize(); }, 150);
+      
+      const ro = new ResizeObserver(() => {
+        mapRef.current?.invalidateSize();
+      });
+      if (divRef.current) ro.observe(divRef.current);
+
       map.on("click", (e: import("leaflet").LeafletMouseEvent) => onTargetRef.current(e.latlng.lat, e.latlng.lng));
       mapRef.current = map;
+      
+      // Store observer on the map object so we can disconnect it on cleanup
+      (map as any)._ro = ro;
     })();
     return () => {
       dead = true;
+      if (map && (map as any)._ro) {
+        (map as any)._ro.disconnect();
+      }
       map?.remove();
       mapRef.current = null;
     };

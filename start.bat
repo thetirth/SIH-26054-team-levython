@@ -21,9 +21,11 @@ if not errorlevel 1 (
   echo [OK] Backend already listening on http://127.0.0.1:8000
 ) else (
   echo [..] Starting FastAPI backend on http://127.0.0.1:8000 ...
+  pushd "%~dp0backend"
   start "UAV-Backend :8000" python -m uvicorn api:app --host 127.0.0.1 --port 8000
+  popd
   echo [..] Waiting for backend /health ...
-  python wait_for_backend.py
+  python backend\wait_for_backend.py
 )
 
 REM ---- Frontend :3000 ----
@@ -41,9 +43,9 @@ if not errorlevel 1 (
 
 echo.
 echo =====================================================================
-echo  Backend  : http://127.0.0.1:8000  ^(docs: /docs, stream: /stream^)
+echo  Backend  : http://127.0.0.1:8000  (docs: /docs, stream: /stream)
 echo  Frontend : http://localhost:3000
-echo  Streamlit: http://localhost:8501  ^(if running: streamlit run dashboard.py^)
+echo  Streamlit: http://localhost:8501  (if running: cd backend ^& streamlit run dashboard.py)
 echo  Run stop.bat to shut the stack down.
 echo =====================================================================
 pause
