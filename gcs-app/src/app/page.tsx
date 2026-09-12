@@ -12,6 +12,7 @@ import {
   Clock,
   Cpu,
   Gauge,
+  Navigation,
   Plane,
   Radio,
   Rotate3D,
@@ -20,6 +21,9 @@ import {
   Volume2,
   VolumeX,
   Wrench,
+  Wind,
+  CloudRain,
+  CloudLightning,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -57,6 +61,31 @@ type Telemetry = {
   powerKw: number;
   torqueNm: number;
   densityRatio: number;
+  // flight / nav / failsafe (live sim; replay rows carry NaN-safe defaults)
+  lat: number;
+  lon: number;
+  heading: number;
+  groundSpeed: number;
+  windSpeed: number;
+  windFrom: number;
+  headwind: number;
+  throttleMode: string;
+  fuelL: number;
+  fuelPct: number;
+  gps: string;
+  insDrift: number;
+  flightMode: string;
+  missionMode: string;
+  autopilot: boolean;
+  targetIas: number;
+  fenceKm: number;
+  distHome: number;
+  targetLat: number | null;
+  targetLon: number | null;
+  targetReached: boolean;
+  outsideFence: boolean;
+  wxSource: string;
+  events: Array<{ seq: number; t: number; level: string; msg: string }>;
   source: "physics-simulation";
   core: { thermal: number; electrical: number; combustion: number; lubrication: number; bsfc: number; status: string };
   ml: { available: boolean; anomaly: boolean; diagnosis: string; confidence: number; rul: number | null; modelType: string; detail: string | null };
@@ -70,11 +99,17 @@ type TwinPayload = {
     altitude_m: number; airspeed_kt: number; throttle_pct: number; rpm: number; power_kw: number; torque_nm: number;
     fuel_flow_lph: number; egt_c: number; cht_c: number; oil_temp_c: number; oil_pressure_psi: number;
     vibration_g: number; battery_soc_pct: number; alternator_v: number; injection_timing_deg: number; density_ratio: number;
+    lat: number; lon: number; heading_deg: number; ground_speed_kt: number;
+    wind_speed_kt: number; wind_from_deg: number; headwind_kt: number; throttle_mode: string;
+    fuel_l: number; fuel_pct: number; gps_status: string; ins_drift_km: number;
+    flight_mode: string; mission_mode: string; fence_radius_km: number; dist_home_km: number;
+    target_lat: number | null; target_lon: number | null; target_reached: boolean;
   };
   health: { overall_pct: number; anomaly_score: number; fault_mode: string; fault_component: string; rul_cycles: number; thermal_pct: number; electrical_pct: number; combustion_pct: number; lubrication_pct: number };
   xai: Array<{ feature: string; impact: number }>;
   engine_core: { status: string; warnings: string[]; thermal_load_pct: number; electrical_health_pct: number; combustion_quality_pct: number; lubrication_health_pct: number; bsfc_g_kwh: number };
   ml_assessment: { available: boolean; anomaly: boolean; diagnosis: string; confidence: number; rul_cycles: number | null; model_type: string; detail?: string };
+  events?: Array<{ seq: number; t: number; level: string; msg: string }>;
 };
 
 const TWIN_API = process.env.NEXT_PUBLIC_TWIN_API_URL ?? "http://127.0.0.1:8000";
@@ -238,6 +273,14 @@ function fromReplayRow(row: Record<string, number | string>, remaining: number):
     powerKw: num("power_kw"),
     torqueNm: num("torque_nm"),
     densityRatio: num("sigma"),
+    lat: 0, lon: 0, heading: 90, groundSpeed: num("airspeed_kt"),
+    windSpeed: 0, windFrom: 0, headwind: 0, throttleMode: "MANUAL",
+    fuelL: 0, fuelPct: 0, gps: "ok", insDrift: 0,
+    flightMode: "REPLAY", missionMode: "SURVEILLANCE", autopilot: false,
+    targetIas: 90, fenceKm: 20, distHome: 0,
+    targetLat: null, targetLon: null, targetReached: false,
+    outsideFence: false, wxSource: "scenario",
+    events: [],
     source: "physics-simulation",
     core: {
       thermal: health,
@@ -254,6 +297,10 @@ function fromReplayRow(row: Record<string, number | string>, remaining: number):
 function fromTwinPayload(payload: TwinPayload): Telemetry {
   const data = payload.telemetry;
   const health = payload.health;
+  const nav = (k: string, fb: number) => {
+    const v = Number((data as unknown as Record<string, unknown>)[k]);
+    return Number.isFinite(v) ? v : fb;
+  };
   return {
     cycle: payload.sequence,
     elapsedS: payload.mission.elapsed_s,
@@ -281,6 +328,30 @@ function fromTwinPayload(payload: TwinPayload): Telemetry {
     powerKw: data.power_kw,
     torqueNm: data.torque_nm,
     densityRatio: data.density_ratio,
+    lat: nav("lat", 0),
+    lon: nav("lon", 0),
+    heading: nav("heading_deg", 90),
+    groundSpeed: nav("ground_speed_kt", 0),
+    windSpeed: nav("wind_speed_kt", 0),
+    windFrom: nav("wind_from_deg", 0),
+    headwind: nav("headwind_kt", 0),
+    throttleMode: String((data as unknown as Record<string, unknown>)["throttle_mode"] ?? "MANUAL"),
+    fuelL: nav("fuel_l", 0),
+    fuelPct: nav("fuel_pct", 0),
+    gps: String((data as unknown as Record<string, unknown>)["gps_status"] ?? "ok"),
+    insDrift: nav("ins_drift_km", 0),
+    flightMode: String((data as unknown as Record<string, unknown>)["flight_mode"] ?? "NOMINAL"),
+    missionMode: String((data as unknown as Record<string, unknown>)["mission_mode"] ?? "SURVEILLANCE"),
+    autopilot: String((data as unknown as Record<string, unknown>)["throttle_mode"] ?? "") === "AUTO",
+    targetIas: 90,
+    fenceKm: nav("fence_radius_km", 20),
+    distHome: nav("dist_home_km", 0),
+    targetLat: (data as unknown as Record<string, unknown>)["target_lat"] as number | null ?? null,
+    targetLon: (data as unknown as Record<string, unknown>)["target_lon"] as number | null ?? null,
+    targetReached: Boolean((data as unknown as Record<string, unknown>)["target_reached"] ?? false),
+    outsideFence: Boolean((data as unknown as Record<string, unknown>)["outside_fence"] ?? false),
+    wxSource: String((data as unknown as Record<string, unknown>)["wx_source"] ?? "scenario"),
+    events: Array.isArray(payload.events) ? payload.events : [],
     source: payload.source,
     core: {
       thermal: payload.engine_core.thermal_load_pct,
@@ -322,6 +393,7 @@ class EngineAudioManager {
   engineSrc: AudioBufferSourceNode | null = null;
   engineFilter: BiquadFilterNode | null = null;
   engineGain: GainNode | null = null;
+  compressor: DynamicsCompressorNode | null = null;
   wobbleOsc: OscillatorNode | null = null;
   wobbleGain: GainNode | null = null;
   useSample = false;
@@ -361,6 +433,15 @@ class EngineAudioManager {
     this.faultGain.gain.value = 1;
     this.faultGain.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
+    this.compressor = ctx.createDynamicsCompressor();
+    this.compressor.threshold.value = -18;
+    this.compressor.knee.value = 12;
+    this.compressor.ratio.value = 4;
+    this.compressor.attack.value = 0.01;
+    this.compressor.release.value = 0.18;
+    this.masterGain.disconnect();
+    this.masterGain.connect(this.compressor);
+    this.compressor.connect(ctx.destination);
 
     // Prefer the REAL recorded piston-engine loop, RPM-tracked via playbackRate.
     try {
@@ -375,7 +456,7 @@ class EngineAudioManager {
       this.engineFilter.type = "lowpass";
       this.engineFilter.frequency.value = 900;
       this.engineGain = ctx.createGain();
-      this.engineGain.gain.value = 0.85;
+      this.engineGain.gain.value = 0.72;
       // Fault roughness: LFO wobble on engine loudness (misfire shake you can hear).
       this.wobbleOsc = ctx.createOscillator();
       this.wobbleOsc.type = "sine";
@@ -446,7 +527,8 @@ class EngineAudioManager {
       this.engineSrc.playbackRate.setTargetAtTime(0.5 + (rpm / 5500) * 1.0, this.ctx.currentTime, 0.15);
       const load = Math.min(1, Math.max(0, throttle / 100));
       this.engineFilter.frequency.setTargetAtTime(380 + load * 1700, this.ctx.currentTime, 0.15);
-      this.masterGain.gain.setTargetAtTime(Math.max(0.08, load), this.ctx.currentTime, 0.15);
+      this.engineGain.gain.setTargetAtTime(0.42 + load * 0.42, this.ctx.currentTime, 0.15);
+      this.masterGain.gain.setTargetAtTime(0.42, this.ctx.currentTime, 0.15);
       const rough = fault !== "none";
       this.wobbleGain.gain.setTargetAtTime(rough ? 0.22 + vibration * 0.9 : 0.02, this.ctx.currentTime, 0.2);
       this.wobbleOsc.frequency.setTargetAtTime(rough ? 6 + vibration * 30 : 9, this.ctx.currentTime, 0.2);
@@ -462,7 +544,8 @@ class EngineAudioManager {
     this.noiseOsc.detune.setTargetAtTime(vibration * 1000, this.ctx.currentTime, 0.1);
 
     const targetVol = Math.max(0.1, throttle / 100);
-    this.masterGain.gain.setTargetAtTime(targetVol, this.ctx.currentTime, 0.1);
+    this.masterGain.gain.setTargetAtTime(0.42, this.ctx.currentTime, 0.1);
+    if (this.engineGain) this.engineGain.gain.setTargetAtTime(targetVol * 0.72, this.ctx.currentTime, 0.1);
 
     if (fault !== "none" && !this.faultInterval) {
       this.faultInterval = window.setInterval(() => {
@@ -554,6 +637,14 @@ const OFFLINE_PLACEHOLDER: Telemetry = {
   powerKw: 0,
   torqueNm: 0,
   densityRatio: 0,
+  lat: 0, lon: 0, heading: 90, groundSpeed: 0,
+  windSpeed: 0, windFrom: 0, headwind: 0, throttleMode: "MANUAL",
+  fuelL: 0, fuelPct: 0, gps: "ok", insDrift: 0,
+  flightMode: "NOMINAL", missionMode: "SURVEILLANCE", autopilot: false,
+  targetIas: 90, fenceKm: 20, distHome: 0,
+  targetLat: null, targetLon: null, targetReached: false,
+  outsideFence: false, wxSource: "scenario",
+  events: [],
   source: "physics-simulation",
   core: { thermal: 0, electrical: 0, combustion: 0, lubrication: 0, bsfc: 0, status: "OFFLINE" },
   ml: { available: false, anomaly: false, diagnosis: "offline", confidence: 0, rul: null, modelType: "offline", detail: null },
@@ -590,7 +681,7 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.localClippingEnabled = true;
     mount.appendChild(renderer.domElement);
 
@@ -711,8 +802,19 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
     const drone = new THREE.Group();
     scene.add(drone);
     const mq9 = new THREE.Group();
-    mq9.rotation.y = Math.PI; // file nose faces -X; scene forward is +X
+    // The source OBJ nose faces -X; normalize it before applying telemetry
+    // heading. Do not add a display-only yaw offset: map and model must agree.
+    mq9.rotation.y = Math.PI;
     drone.add(mq9);
+    // The OBJ contains separate `Propeller` (hub/cap) and `Blades` groups.
+    // Use the cap's center pole as the pivot; only the blades are animated.
+    const propellerBlades: THREE.Object3D[] = [];
+    const propellerPivot = new THREE.Group();
+    let propellerPivotReady = false;
+    let propellerCap: THREE.Object3D | null = null;
+    const navLight = new THREE.PointLight(0x22d3ee, 0.8, 4);
+    navLight.position.set(2.8, 0.1, 0);
+    drone.add(navLight);
 
     // Flat factory-gray finish, no textures.
     const reaperMat = new THREE.MeshStandardMaterial({
@@ -740,8 +842,23 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
             mesh.material = reaperMat;
             mesh.castShadow = true;
           }
+          const partName = child.name.toLowerCase();
+          if (partName.includes("blade")) propellerBlades.push(child);
+          if (partName === "propeller" || partName.includes("propeller")) propellerCap = child;
         });
         mq9.add(obj);
+        if (propellerBlades.length > 0 && propellerCap && !propellerPivotReady) {
+          // Derive the axis from the fixed cap/hub, not the blade extents.
+          // This keeps the center pin visually locked in the spinner.
+          obj.updateMatrixWorld(true);
+          const capBounds = new THREE.Box3().setFromObject(propellerCap);
+          const capCenter = capBounds.getCenter(new THREE.Vector3());
+          obj.worldToLocal(capCenter);
+          propellerPivot.position.copy(capCenter);
+          obj.add(propellerPivot);
+          propellerBlades.forEach((blade) => propellerPivot.attach(blade));
+          propellerPivotReady = true;
+        }
       },
       undefined,
       (err) => console.warn("Reaper model failed to load:", err)
@@ -787,12 +904,6 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
         console.warn("Real engine shell failed to load:", err);
       }
     );
-    // Position engine group — center in scene when active
-    engine.position.set(0, 0.15, 0);
-    engine.scale.setScalar(1.35);
-    engine.visible = false;
-    scene.add(engine);
-
     // Position engine group — center in scene when active
     engine.position.set(0, 0.15, 0);
     engine.scale.setScalar(1.35);
@@ -892,8 +1003,31 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
 
           drone.rotation.z = Math.sin(frame * 1.4) * 0.08 + (load - 0.62) * 0.22 + phasePitch;
           drone.rotation.x = Math.sin(frame * 0.9) * 0.035;
-          drone.rotation.y = Math.sin(frame * 0.55) * 0.06;
-          drone.position.y = Math.sin(frame * 1.1) * 0.08;
+          // The same heading and flight mode that drive the Leaflet marker
+          // drive the model, keeping map and digital twin orientation aligned.
+          const headingRad = (live.heading * Math.PI) / 180;
+          // Heading is the ground-track direction. Apply a bounded crab
+          // correction from live wind so the nose/propeller faces into the
+          // relative wind without breaking map-to-model synchronization.
+          const windFromRad = (live.windFrom * Math.PI) / 180;
+          const crossWind = live.windSpeed * Math.sin(windFromRad - headingRad);
+          const crabAngle = Math.atan2(crossWind, Math.max(live.airspeed, 1));
+          const attackRun = live.missionMode === "ATTACK";
+          const returning = live.flightMode === "RTL" || live.flightMode === "RECOVERED";
+          const destroyed = live.flightMode === "DESTROYED";
+          // Leaflet/telemetry heading: 0° = north, 90° = east. The
+          // normalized OBJ nose is +X, so compass heading maps to yaw
+          // heading - 90° in Three.js (not heading directly).
+          const sceneYaw = headingRad - Math.PI / 2 + crabAngle;
+          drone.rotation.y = sceneYaw + Math.sin(frame * (attackRun ? 4.2 : 0.55)) * (attackRun ? 0.12 : 0.06);
+          drone.position.y = Math.sin(frame * (returning ? 2.4 : 1.1)) * (returning ? 0.14 : 0.08);
+          drone.position.x = attackRun ? Math.sin(frame * 2.6) * 0.08 : 0;
+          drone.scale.setScalar(destroyed ? 0.98 : attackRun ? 1.02 + Math.abs(Math.sin(frame * 5)) * 0.025 : 1);
+          navLight.color.setHex(destroyed ? 0xff3025 : attackRun ? 0xff4538 : returning ? 0xffc04a : 0x22d3ee);
+          navLight.intensity = destroyed ? 0.15 : 0.7 + Math.abs(Math.sin(frame * (attackRun ? 8 : 2))) * 0.45;
+          if (propellerBlades.length > 0) {
+            propellerPivot.rotation.x += (0.18 + load * 0.8) * (attackRun ? 1.35 : 1);
+          }
           // Whole-model fault tint on the Reaper shell
           if (live.fault !== "none") {
             reaperMat.emissive.setHex(0xff1208);
@@ -920,6 +1054,10 @@ function DroneScene({ telemetry, isLive, viewMode }: { telemetry: Telemetry; isL
         } else {
           drone.rotation.y = Math.sin(frame * 0.2) * 0.08;
           drone.position.y = Math.sin(frame * 0.6) * 0.04;
+          drone.position.x = 0;
+          drone.scale.setScalar(1);
+          navLight.color.setHex(0x22d3ee);
+          navLight.intensity = 0.35;
           reaperMat.emissive.setHex(0x000000);
           reaperMat.emissiveIntensity = 0;
           streakMesh.visible = false;
@@ -988,6 +1126,139 @@ function SignalTrace({ history }: { history: Telemetry[] }) {
   );
 }
 
+// --- Real-map flight view (Leaflet, loaded client-side only) ---
+function LegacyFlightMap({ telemetry, launch, onTarget }: {
+  telemetry: Telemetry | null;
+  launch: { lat: number; lon: number } | null;
+  onTarget: (lat: number, lon: number) => void;
+}) {
+  const divRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<import("leaflet").Map | null>(null);
+  const droneRef = useRef<import("leaflet").Marker | null>(null);
+  const homeRef = useRef<import("leaflet").Marker | null>(null);
+  const tgtRef = useRef<import("leaflet").Marker | null>(null);
+  const fenceRef = useRef<import("leaflet").Circle | null>(null);
+  const trailRef = useRef<import("leaflet").Polyline | null>(null);
+  const trail = useRef<Array<[number, number]>>([]);
+  const onTargetRef = useRef(onTarget);
+  onTargetRef.current = onTarget;
+
+  useEffect(() => {
+    let dead = false;
+    let map: import("leaflet").Map | null = null;
+    (async () => {
+      const L = (await import("leaflet")).default;
+      if (dead || !divRef.current || mapRef.current) return;
+      map = L.map(divRef.current, { zoomControl: true }).setView(
+        launch ? [launch.lat, launch.lon] : [13.0238, 77.627], 12);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+      map.on("click", (e: import("leaflet").LeafletMouseEvent) => onTargetRef.current(e.latlng.lat, e.latlng.lng));
+      mapRef.current = map;
+    })();
+    return () => {
+      dead = true;
+      map?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    import("leaflet").then(({ default: LL }) => {
+      if (!mapRef.current) return;
+      if (launch) {
+        const hp: [number, number] = [launch.lat, launch.lon];
+        if (!homeRef.current) {
+          homeRef.current = LL.marker(hp, {
+            icon: LL.divIcon({ className: "uav-home", html: '<div style="width:12px;height:12px;border-radius:50%;background:#22c55e;border:2px solid #052e16"></div>', iconSize: [12, 12], iconAnchor: [6, 6] }),
+            title: "Launch",
+          }).addTo(mapRef.current);
+        } else homeRef.current.setLatLng(hp);
+        const fr = (telemetry?.fenceKm ?? 20) * 1000;
+        if (!fenceRef.current) {
+          fenceRef.current = LL.circle(hp, { radius: fr, color: "#22d3ee", weight: 1.5, dashArray: "6 6", fill: false }).addTo(mapRef.current);
+        } else {
+          fenceRef.current.setLatLng(hp);
+          fenceRef.current.setRadius(fr);
+        }
+      }
+      const hasFix = !!telemetry && (telemetry.lat !== 0 || telemetry.lon !== 0);
+      if (hasFix && telemetry) {
+        const p: [number, number] = [telemetry.lat, telemetry.lon];
+        const icon = LL.divIcon({
+          className: "uav-marker",
+          html: `<div style="transform: rotate(${telemetry.heading}deg)"><svg width="26" height="26" viewBox="0 0 26 26"><polygon points="13,1 21,23 13,18 5,23" fill="#22d3ee" stroke="#062a33" stroke-width="1.5"/></svg></div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+        if (!droneRef.current) droneRef.current = LL.marker(p, { icon, title: "UAV" }).addTo(mapRef.current);
+        else {
+          droneRef.current.setLatLng(p);
+          droneRef.current.setIcon(icon);
+        }
+        trail.current = [...trail.current.slice(-119), p];
+        if (!trailRef.current) trailRef.current = LL.polyline(trail.current, { color: "#22d3ee", weight: 2, opacity: 0.7 }).addTo(mapRef.current);
+        else trailRef.current.setLatLngs(trail.current);
+      }
+      if (telemetry?.targetLat != null && telemetry?.targetLon != null) {
+        const tp: [number, number] = [telemetry.targetLat, telemetry.targetLon];
+        if (!tgtRef.current) {
+          tgtRef.current = LL.marker(tp, {
+            icon: LL.divIcon({ className: "uav-target", html: '<svg width="22" height="30" viewBox="0 0 22 30"><path d="M11 0 C6 0 3 4 3 9 C3 16 11 30 11 30 C11 30 19 16 19 9 C19 4 16 0 11 0 Z" fill="#ef4444" stroke="#450a0a"/><circle cx="11" cy="9" r="3.5" fill="#fff"/></svg>', iconSize: [22, 30], iconAnchor: [11, 30] }),
+            title: "Target",
+          }).addTo(mapRef.current);
+        } else tgtRef.current.setLatLng(tp);
+      } else if (tgtRef.current) {
+        tgtRef.current.remove();
+        tgtRef.current = null;
+      }
+    });
+  });
+
+  return (
+    <div>
+      <div ref={divRef} style={{ height: 380, width: "100%", borderRadius: 8, overflow: "hidden", background: "#0b1c26" }} />
+      <div className={styles.trendNote}>Real map — click to set destination waypoint · circle is the surveillance geofence</div>
+    </div>
+  );
+}
+
+// --- Airspeed speedometer (SVG arc gauge) ---
+function Speedo({ ias, gs }: { ias: number; gs: number }) {
+  const max = 160;
+  const a = (v: number) => ((-120 + (Math.min(Math.max(v, 0), max) / max) * 240) * Math.PI) / 180;
+  const cx = 60, cy = 56, R = 44;
+  const pt = (ang: number, r: number): [number, number] => [cx + r * Math.sin(ang), cy - r * Math.cos(ang)];
+  const ticks: number[] = [];
+  for (let v = 0; v <= max; v += 20) ticks.push(v);
+  const [nx, ny] = pt(a(ias), R - 8);
+  return (
+    <svg viewBox="0 0 120 84" style={{ width: "100%", maxWidth: 220 }}>
+      <path d={(() => { const [x0, y0] = pt(a(0), R); const [x1, y1] = pt(a(max), R); return `M ${x0} ${y0} A ${R} ${R} 0 1 1 ${x1} ${y1}`; })()} fill="none" stroke="#1e3a4a" strokeWidth={7} strokeLinecap="round" />
+      <path d={(() => { const [x0, y0] = pt(a(0), R); const [x1, y1] = pt(a(ias), R); return `M ${x0} ${y0} A ${R} ${R} 0 ${(a(ias) - a(0)) > Math.PI ? 1 : 0} 1 ${x1} ${y1}`; })()} fill="none" stroke="var(--cyan)" strokeWidth={7} strokeLinecap="round" />
+      {ticks.map((v) => {
+        const [x0, y0] = pt(a(v), R - 2);
+        const [x1, y1] = pt(a(v), R - 8);
+        const [tx, ty] = pt(a(v), R - 15);
+        return (
+          <g key={v}>
+            <line x1={x0} y1={y0} x2={x1} y2={y1} stroke="#5b7a8c" strokeWidth={1.4} />
+            {v % 40 === 0 ? <text x={tx} y={ty + 3} fontSize={7} fill="#8b949e" textAnchor="middle">{v}</text> : null}
+          </g>
+        );
+      })}
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#e6edf3" strokeWidth={2.4} strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r={3.4} fill="#e6edf3" />
+      <text x={cx} y={76} fontSize={11} fill="#e6edf3" textAnchor="middle" fontWeight={700}>{ias.toFixed(0)} kt</text>
+      <text x={cx} y={62} fontSize={7} fill="#8b949e" textAnchor="middle">GS {gs.toFixed(0)}</text>
+    </svg>
+  );
+}
+
 export default function Home() {
   const [scenario, setScenario] = useState<ScenarioKey>("hotWeather");
   const [liveTelemetry, setLiveTelemetry] = useState<Telemetry | null>(null);
@@ -996,6 +1267,8 @@ export default function Home() {
   const [retryKey, setRetryKey] = useState(0);
   const [healthInfo, setHealthInfo] = useState<Record<string, unknown> | null>(null);
   const [missions, setMissions] = useState<Array<{ engine_id: string; mission_id: number; scenario: string; fault_type: string; cycles: number }>>([]);
+  const [launch, setLaunch] = useState<{ lat: number; lon: number } | null>(null);
+  const [destructArmed, setDestructArmed] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const [customAlt, setCustomAlt] = useState(5000);
   const [customAmb, setCustomAmb] = useState(15);
@@ -1004,8 +1277,19 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<"drone" | "engine">("drone");
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [showFlightControl, setShowFlightControl] = useState(false);
+  const [weather, setWeather] = useState<{
+    temperature: number;
+    windSpeed: number;
+    windDirection: number;
+    precipitation: number;
+    weatherCode: number;
+    source: string;
+    updatedAt: string;
+  } | null>(null);
   const audioRef = useRef<EngineAudioManager | null>(null);
   const prevStatusRef = useRef("NOMINAL");
+  const previousFlightStateRef = useRef({ mode: "", flightMode: "" });
 
   useEffect(() => {
     setCurrentTime(new Date());
@@ -1029,6 +1313,22 @@ export default function Home() {
   }, [liveTelemetry, soundEnabled]);
 
   useEffect(() => {
+    if (!soundEnabled || !liveTelemetry || !audioRef.current) return;
+    const previous = previousFlightStateRef.current;
+    const modeChanged = previous.mode && previous.mode !== liveTelemetry.missionMode;
+    const flightModeChanged = previous.flightMode && previous.flightMode !== liveTelemetry.flightMode;
+    if (modeChanged || flightModeChanged) {
+      void audioRef.current.playAlert(
+        liveTelemetry.flightMode === "RTL" || liveTelemetry.missionMode === "ATTACK" ? "caution" : "critical"
+      );
+    }
+    previousFlightStateRef.current = {
+      mode: liveTelemetry.missionMode,
+      flightMode: liveTelemetry.flightMode,
+    };
+  }, [liveTelemetry, soundEnabled]);
+
+  useEffect(() => {
     let active = true;
     let socket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
@@ -1040,8 +1340,14 @@ export default function Home() {
       try {
         const healthRes = await fetch(`${TWIN_API}/health`, { cache: "no-store" });
         if (!healthRes.ok) throw new Error(`health ${healthRes.status}`);
-        const h = await healthRes.json();
-        if (active) setHealthInfo(h);
+        const h = (await healthRes.json()) as Record<string, unknown>;
+        if (active) {
+          setHealthInfo(h);
+          const l = h["launch"] as { lat?: unknown; lon?: unknown } | undefined;
+          if (l && Number.isFinite(Number(l.lat)) && Number.isFinite(Number(l.lon))) {
+            setLaunch({ lat: Number(l.lat), lon: Number(l.lon) });
+          }
+        }
 
         // A (re)start is only issued for explicit user action (scenario change
         // or manual retry). Silent auto-reconnects reattach to the ONGOING
@@ -1058,6 +1364,10 @@ export default function Home() {
             const start = await fetch(`${TWIN_API}/mission/start?scenario=${scenarios[scenario].apiScenario}`, { method: "POST" });
             if (!start.ok) throw new Error(`mission/start ${start.status}: ${await start.text()}`);
           }
+          // Keep the physics, ML inputs, map readout, and weather card on the
+          // same live source after every mission reset.
+          const weatherRes = await fetch(`${TWIN_API}/mission/weather?mode=auto`, { method: "POST" });
+          if (!weatherRes.ok) throw new Error(`mission/weather ${weatherRes.status}: ${await weatherRes.text()}`);
         }
 
         socket = new WebSocket(TWIN_STREAM);
@@ -1135,7 +1445,7 @@ export default function Home() {
   }, []);
 
   // Predictive maintenance advisories — real backend /advisory, polled live
-  const [advisories, setAdvisories] = useState<Array<{ level: string; action: string; due_cycles: string }>>([]);
+  const [advisories, setAdvisories] = useState<Array<{ level: string; action: string; due_cycles: string; fix?: { fix_id: string; text: string; status: string; needs_accept: boolean } }>>([]);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -1222,6 +1532,55 @@ export default function Home() {
   const status = display ? statusFor(display.health, display.anomaly, display.fault) : "OFFLINE";
 
   useEffect(() => {
+    if (!display || !Number.isFinite(display.lat) || !Number.isFinite(display.lon)) return;
+    const controller = new AbortController();
+    const loadWeather = async () => {
+      try {
+        const params = new URLSearchParams({
+          latitude: display.lat.toFixed(4),
+          longitude: display.lon.toFixed(4),
+          current: "temperature_2m,precipitation,wind_speed_10m,wind_direction_10m,weather_code",
+          timezone: "auto",
+        });
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`weather ${response.status}`);
+        const payload = (await response.json()) as {
+          current?: {
+            temperature_2m?: number;
+            precipitation?: number;
+            wind_speed_10m?: number;
+            wind_direction_10m?: number;
+            weather_code?: number;
+            time?: string;
+          };
+        };
+        const current = payload.current;
+        if (!current) throw new Error("weather response missing current conditions");
+        setWeather({
+          temperature: Number(current.temperature_2m ?? 0),
+          precipitation: Number(current.precipitation ?? 0),
+          windSpeed: Number(current.wind_speed_10m ?? 0) * 0.539957,
+          windDirection: Number(current.wind_direction_10m ?? 0),
+          weatherCode: Number(current.weather_code ?? 0),
+          source: "Open-Meteo live",
+          updatedAt: String(current.time ?? new Date().toISOString()),
+        });
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") setWeather(null);
+      }
+    };
+    void loadWeather();
+    const id = window.setInterval(() => void loadWeather(), 60000);
+    return () => {
+      controller.abort();
+      window.clearInterval(id);
+    };
+  }, [display?.lat, display?.lon]);
+
+  useEffect(() => {
     if (soundEnabled && audioRef.current && status !== prevStatusRef.current) {
       if (status === "CAUTION") audioRef.current.playAlert("caution");
       if (status === "CRITICAL") audioRef.current.playAlert("critical");
@@ -1255,6 +1614,46 @@ export default function Home() {
     setLinkState("connecting");
     setRetryKey((k) => k + 1);
   };
+
+  const apiPost = async (path: string) => {
+    const res = await fetch(`${TWIN_API}${path}`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return (await res.json()) as Record<string, unknown>;
+  };
+  const sendTarget = async (lat: number, lon: number) => {
+    try {
+      const j = await apiPost(`/mission/target?lat=${lat}&lon=${lon}`);
+      pushToast("NOMINAL", "Target set", `${lat.toFixed(4)}, ${lon.toFixed(4)} — ${String(j["dist_km"] ?? "?")} km out`, 5000);
+    } catch {
+      pushToast("CAUTION", "Target rejected", "Backend unreachable", 5000);
+    }
+  };
+  const acceptFix = async (fixId: string) => {
+    try {
+      const j = await apiPost(`/maintenance/accept?fix_id=${encodeURIComponent(fixId)}`);
+      pushToast("NOMINAL", "Fix accepted", `Operator-approved repair applied (${String(j["fault"] ?? "")}).`, 5000);
+    } catch {
+      pushToast("CAUTION", "Accept failed", "Backend unreachable or fix already applied", 5000);
+    }
+  };
+  useEffect(() => {
+    if (!destructArmed) return;
+    const id = window.setTimeout(() => setDestructArmed(false), 6000);
+    return () => window.clearTimeout(id);
+  }, [destructArmed]);
+  // Backend autopilot events -> operator toasts (critical/warn only; info lives in the feed)
+  const lastEvSeq = useRef(0);
+  useEffect(() => {
+    if (!display) return;
+    for (const e of display.events) {
+      if (e.seq > lastEvSeq.current) {
+        lastEvSeq.current = e.seq;
+        if (e.level === "critical") pushToast("CRITICAL", "Autopilot event", e.msg, 12000);
+        else if (e.level === "warn") pushToast("CAUTION", "Autopilot event", e.msg, 8000);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [display]);
 
   return (
     <main className={styles.shell}>
@@ -1341,6 +1740,18 @@ export default function Home() {
           </button>
         )})}
       </section>
+
+      <div style={{ maxWidth: 1560, margin: "0 auto 10px", padding: "0 clamp(12px,1.6vw,16px)", display: "flex", justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          className={styles.btnGhost}
+          onClick={() => setShowFlightControl((visible) => !visible)}
+          aria-expanded={showFlightControl}
+          style={{ padding: "7px 12px", fontSize: 11, borderColor: showFlightControl ? "var(--cyan)" : undefined }}
+        >
+          <Navigation size={13} /> {showFlightControl ? "Hide" : "Open"} Flight Control · Geofence · Failsafe
+        </button>
+      </div>
 
       {showCustom ? (
         <section className={styles.customPanel}>
@@ -1767,6 +2178,17 @@ export default function Home() {
                         <strong style={{ color }}>[{lvl}]</strong>{' '}{a.action}
                         {a.due_cycles === "immediate" ? <span style={{ opacity: 0.75 }}> — immediate action</span>
                           : (a.due_cycles && a.due_cycles !== "N/A" ? <span style={{ opacity: 0.75 }}> — due in {a.due_cycles} cycles</span> : null)}
+                        {a.fix ? (
+                          <div style={{ marginTop: 4, fontSize: 12 }}>
+                            <span style={{ opacity: 0.8 }}>Fix: {a.fix.text} [{a.fix.status}]</span>{' '}
+                            {a.fix.needs_accept && a.fix.status === "proposed" ? (
+                              <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11, marginLeft: 6 }}
+                                onClick={() => void acceptFix(a.fix!.fix_id)}>
+                                Accept fix
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -1787,6 +2209,116 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {false && <section className={styles.flightPanel} aria-hidden="true">
+        <div className={styles.panelTitle}>
+          <Navigation size={18} />
+          <h2>Flight control, geofence &amp; failsafe</h2>
+        </div>
+        {!isLive || !display ? (
+          <div className={styles.emptyState}>Awaiting live backend stream for flight data.</div>
+        ) : (
+          <>
+            {(display.flightMode === "RTL" || display.flightMode === "DESTROYED" || display.gps === "jammed") ? (
+              <div className={styles.failsafeBanner} style={{
+                borderColor: display.flightMode === "DESTROYED" ? "var(--red)" : "var(--amber)",
+                color: display.flightMode === "DESTROYED" ? "var(--red)" : "var(--amber)",
+              }}>
+                {display.flightMode === "DESTROYED"
+                  ? "AIRFRAME DESTROYED — sanitized to protect sensitive data"
+                  : display.flightMode === "RTL"
+                    ? `FAILSAFE RTL — returning to launch (${display.distHome.toFixed(1)} km out)`
+                    : "GPS JAMMED — holding on drifting INS"}
+              </div>
+            ) : null}
+            {display.flightMode === "RECOVERED" ? (
+              <div className={styles.failsafeBanner} style={{ borderColor: "var(--green)", color: "var(--green)" }}>
+                Recovered at launch — holding position
+              </div>
+            ) : null}
+            <div className={styles.flightGrid}>
+              <div className={styles.mapWrap}>
+                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} />
+                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => { void apiPost("/mission/target").catch(() => undefined); }}>
+                    Clear target
+                  </button>
+                  <span style={{ fontSize: 11, opacity: 0.75, alignSelf: "center" }}>
+                    {display.targetLat != null ? `Target ${display.targetLat.toFixed(4)}, ${display.targetLon!.toFixed(4)}${display.targetReached ? " — reached, orbiting" : ""}` : "No destination set"}
+                    {' · '}Home {display.distHome.toFixed(1)} km
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <Speedo ias={display.airspeed} gs={display.groundSpeed} />
+                  <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                    <div>Wind <strong>{display.windSpeed.toFixed(0)} kt</strong> from <strong>{display.windFrom.toFixed(0)}°</strong> ({display.headwind >= 0 ? "+" : ""}{display.headwind.toFixed(0)} kt headwind)</div>
+                    <div>Throttle <strong>{display.throttleMode}</strong> · {display.throttle.toFixed(0)}%</div>
+                    <div>Fuel <strong>{display.fuelL.toFixed(1)} L ({display.fuelPct.toFixed(0)}%)</strong></div>
+                    <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 4, height: 8, width: 150, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, display.fuelPct)}%`, background: display.fuelPct > 20 ? "var(--green)" : "var(--red)" }} />
+                    </div>
+                    <div>GPS <strong style={{ color: display.gps === "jammed" ? "var(--red)" : "var(--green)" }}>{display.gps.toUpperCase()}</strong>{display.gps === "jammed" ? ` · INS drift +${display.insDrift.toFixed(1)} km` : ""}</div>
+                    <div>Mode <strong>{display.missionMode}</strong> · fence <strong>{display.fenceKm.toFixed(0)} km</strong></div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost(`/mission/mode?mode=${display.missionMode === "SURVEILLANCE" ? "ATTACK" : "SURVEILLANCE"}`).catch(() => undefined)}>
+                    Go {display.missionMode === "SURVEILLANCE" ? "ATTACK (cross fence)" : "SURVEILLANCE (hold fence)"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost(`/autopilot?enabled=${!display.autopilot}`).catch(() => undefined)}>
+                    Autothrottle {display.autopilot ? "ON" : "OFF"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/rtl").then(() => pushToast("CAUTION", "RTL commanded", "Returning to launch.", 6000)).catch(() => undefined)}>
+                    RTL now
+                  </button>
+                  <button type="button" className={styles.btnGhost}
+                    style={{ padding: "4px 10px", fontSize: 11, borderColor: destructArmed ? "var(--red)" : undefined, color: destructArmed ? "var(--red)" : undefined }}
+                    onClick={() => {
+                      if (!destructArmed) {
+                        setDestructArmed(true);
+                        pushToast("CAUTION", "Destruct armed", "Click again within 6 s to execute sanitize.", 6000);
+                      } else {
+                        setDestructArmed(false);
+                        void apiPost("/mission/destruct?confirm=true")
+                          .then(() => pushToast("CRITICAL", "Self-destruct executed", "Airframe sanitized.", 12000))
+                          .catch(() => pushToast("CAUTION", "Destruct rejected", "Backend unreachable.", 5000));
+                      }
+                    }}>
+                    {destructArmed ? "CONFIRM destruct" : "Self-destruct"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11 }}>
+                  <span style={{ opacity: 0.75 }}>Demo chaos:</span>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/event?kind=gps_jam").catch(() => undefined)}>Jam GPS</button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/event?kind=gps_clear").catch(() => undefined)}>Clear GPS</button>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4 }}>Autopilot event feed (backend)</div>
+                  {display.events.length === 0 ? (
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>No events yet this sortie.</div>
+                  ) : (
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }}>
+                      {[...display.events].reverse().map((e) => (
+                        <li key={e.seq} style={{ fontSize: 12, borderLeft: `3px solid ${e.level === "critical" ? "var(--red)" : e.level === "warn" ? "var(--amber)" : "var(--green)"}`, padding: "3px 8px", background: "rgba(255,255,255,0.02)", borderRadius: "0 4px 4px 0" }}>
+                          <span style={{ opacity: 0.6 }}>T+{e.t}s · </span>{e.msg}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </section>}
 
       <section className={styles.coverage}>
         {requirements.map((item) => (
@@ -1815,6 +2347,305 @@ export default function Home() {
           );
         })}
       </div>
+
+      {/* Flight Control, Geofence & Failsafe Panel */}
+      <section className={styles.flightPanel} style={{ display: showFlightControl ? undefined : "none" }}>
+        <div className={styles.panelTitle}>
+          <Navigation size={18} />
+          <h2>Flight control, geofence &amp; failsafe</h2>
+        </div>
+        {!isLive || !display ? (
+          <div className={styles.emptyState}>Awaiting live backend stream for flight data.</div>
+        ) : (
+          <>
+            {/* Real-time weather display */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+                <CloudLightning size={16} style={{ color: display.missionMode === "ATTACK" ? "var(--red)" : "var(--cyan)" }} />
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>MISSION MODE</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: display.missionMode === "ATTACK" ? "var(--red)" : "var(--cyan)" }}>
+                    {display.missionMode}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+                <Wind size={16} style={{ color: "var(--cyan)" }} />
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>WIND</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {(weather?.windSpeed ?? display.windSpeed).toFixed(0)} kt from {(weather?.windDirection ?? display.windFrom).toFixed(0)}° ({display.headwind >= 0 ? "+" : ""}{display.headwind.toFixed(0)} kt hw)
+                  </div>
+                <div style={{ fontSize: 10, opacity: 0.6 }}>{weather?.source ?? display.wxSource}{weather ? ` · ${new Date(weather.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6 }}>
+                <CloudRain size={16} style={{ color: "var(--cyan)" }} />
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>TEMP / ALT</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {display.altitude.toFixed(0)}m · {(weather?.temperature ?? ((display.altitude * 0.0065) - 15)).toFixed(1)}°C · rain {weather?.precipitation.toFixed(1) ?? "0.0"}mm
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {(display.flightMode === "RTL" || display.flightMode === "DESTROYED" || display.gps === "jammed") ? (
+              <div className={styles.failsafeBanner} style={{
+                borderColor: display.flightMode === "DESTROYED" ? "var(--red)" : "var(--amber)",
+                color: display.flightMode === "DESTROYED" ? "var(--red)" : "var(--amber)",
+              }}>
+                {display.flightMode === "DESTROYED"
+                  ? "AIRFRAME DESTROYED — sanitized to protect sensitive data"
+                  : display.flightMode === "RTL"
+                    ? `FAILSAFE RTL — returning to launch (${display.distHome.toFixed(1)} km out)`
+                    : "GPS JAMMED — holding on drifting INS"}
+              </div>
+            ) : null}
+            {display.flightMode === "RECOVERED" ? (
+              <div className={styles.failsafeBanner} style={{ borderColor: "var(--green)", color: "var(--green)" }}>
+                Recovered at launch — holding position
+              </div>
+            ) : null}
+            <div className={styles.flightGrid}>
+              {/* Dark mode map with 3D drone synchronization */}
+              <div className={styles.mapWrap}>
+                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} />
+                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => { void apiPost("/mission/target").catch(() => undefined); }}>
+                    Clear target
+                  </button>
+                  <span style={{ fontSize: 11, opacity: 0.75, alignSelf: "center" }}>
+                    {display.targetLat != null ? `Target ${display.targetLat.toFixed(4)}, ${display.targetLon!.toFixed(4)}${display.targetReached ? " — reached, orbiting" : ""}` : "No destination set"}
+                    {' · '}Home {display.distHome.toFixed(1)} km
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <Speedo ias={display.airspeed} gs={display.groundSpeed} />
+                  <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                    <div>Fuel <strong>{display.fuelL.toFixed(1)} L ({display.fuelPct.toFixed(0)}%)</strong></div>
+                    <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 4, height: 8, width: 150, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, display.fuelPct)}%`, background: display.fuelPct > 20 ? "var(--green)" : "var(--red)" }} />
+                    </div>
+                    <div>GPS <strong style={{ color: display.gps === "jammed" ? "var(--red)" : "var(--green)" }}>{display.gps.toUpperCase()}</strong>{display.gps === "jammed" ? ` · INS drift +${display.insDrift.toFixed(1)} km` : ""}</div>
+                    <div>Mode <strong>{display.missionMode}</strong> · fence <strong>{display.fenceKm.toFixed(0)} km</strong></div>
+                    <div>Geofence <strong>{display.outsideFence ? "EXCEEDED" : "ACTIVE"}</strong> · {display.flightMode}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost(`/mission/mode?mode=${display.missionMode === "SURVEILLANCE" ? "ATTACK" : "SURVEILLANCE"}`).catch(() => undefined)}>
+                    Go {display.missionMode === "SURVEILLANCE" ? "ATTACK (cross fence)" : "SURVEILLANCE (hold fence)"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost(`/autopilot?enabled=${!display.autopilot}`).catch(() => undefined)}>
+                    Autothrottle {display.autopilot ? "ON" : "OFF"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/rtl").then(() => pushToast("CAUTION", "RTL commanded", "Returning to launch.", 6000)).catch(() => undefined)}>
+                    RTL now
+                  </button>
+                  <button type="button" className={styles.btnGhost}
+                    style={{ padding: "4px 10px", fontSize: 11, borderColor: destructArmed ? "var(--red)" : undefined, color: destructArmed ? "var(--red)" : undefined }}
+                    onClick={() => {
+                      if (!destructArmed) {
+                        setDestructArmed(true);
+                        pushToast("CAUTION", "Destruct armed", "Click again within 6 s to execute sanitize.", 6000);
+                      } else {
+                        setDestructArmed(false);
+                        void apiPost("/mission/destruct?confirm=true")
+                          .then(() => pushToast("CRITICAL", "Self-destruct executed", "Airframe sanitized.", 12000))
+                          .catch(() => pushToast("CAUTION", "Destruct rejected", "Backend unreachable.", 5000));
+                      }
+                    }}>
+                    {destructArmed ? "CONFIRM destruct" : "Self-destruct"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11 }}>
+                  <span style={{ opacity: 0.75 }}>Demo chaos:</span>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/event?kind=gps_jam").catch(() => undefined)}>Jam GPS</button>
+                  <button type="button" className={styles.btnGhost} style={{ padding: "2px 10px", fontSize: 11 }}
+                    onClick={() => void apiPost("/mission/event?kind=gps_clear").catch(() => undefined)}>Clear GPS</button>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4 }}>Autopilot event feed (backend)</div>
+                  {display.events.length === 0 ? (
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>No events yet this sortie.</div>
+                  ) : (
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }}>
+                      {[...display.events].reverse().map((e) => (
+                        <li key={e.seq} style={{ fontSize: 12, borderLeft: `3px solid ${e.level === "critical" ? "var(--red)" : e.level === "warn" ? "var(--amber)" : "var(--green)"}`, padding: "3px 8px", background: "rgba(255,255,255,0.02)", borderRadius: "0 4px 4px 0" }}>
+                          <span style={{ opacity: 0.6 }}>T+{e.t}s · </span>{e.msg}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
     </main>
+  );
+}
+
+// --- Dark mode FlightMap with 3D drone synchronization ---
+function FlightMap({ telemetry, launch, onTarget }: {
+  telemetry: Telemetry | null;
+  launch: { lat: number; lon: number } | null;
+  onTarget: (lat: number, lon: number) => void;
+}) {
+  const divRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<import("leaflet").Map | null>(null);
+  const droneRef = useRef<import("leaflet").Marker | null>(null);
+  const homeRef = useRef<import("leaflet").Marker | null>(null);
+  const tgtRef = useRef<import("leaflet").Marker | null>(null);
+  const fenceRef = useRef<import("leaflet").Circle | null>(null);
+  const trailRef = useRef<import("leaflet").Polyline | null>(null);
+  const trail = useRef<Array<[number, number]>>([]);
+  const onTargetRef = useRef(onTarget);
+  onTargetRef.current = onTarget;
+
+  useEffect(() => {
+    let dead = false;
+    let map: import("leaflet").Map | null = null;
+    (async () => {
+      const L = (await import("leaflet")).default;
+      if (dead || !divRef.current || mapRef.current) return;
+      // Dark mode map with CartoDB Dark Matter tiles
+      map = L.map(divRef.current, { zoomControl: true, minZoom: 3, maxZoom: 19 }).setView(
+        launch ? [launch.lat, launch.lon] : [13.0238, 77.627], 12);
+      
+      // Standard OpenStreetMap tiles require no API key or token. The dark
+      // panel styling is provided by the surrounding UI, preserving readable
+      // roads and terrain labels for operators.
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        subdomains: "abc",
+        detectRetina: true,
+      }).addTo(map);
+      
+      map.on("click", (e: import("leaflet").LeafletMouseEvent) => onTargetRef.current(e.latlng.lat, e.latlng.lng));
+      mapRef.current = map;
+    })();
+    return () => {
+      dead = true;
+      map?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    import("leaflet").then(({ default: LL }) => {
+      if (!mapRef.current) return;
+      
+      // Update launch point marker
+      if (launch) {
+        const hp: [number, number] = [launch.lat, launch.lon];
+        if (!homeRef.current) {
+          homeRef.current = LL.marker(hp, {
+            icon: LL.divIcon({ 
+              className: "uav-home", 
+              html: '<div style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #052e16;box-shadow:0 0 10px rgba(34,197,94,0.7)"></div>', 
+              iconSize: [14, 14], 
+              iconAnchor: [7, 7] 
+            }),
+            title: "Launch",
+          }).addTo(mapRef.current);
+        } else homeRef.current.setLatLng(hp);
+        
+        const fr = (telemetry?.fenceKm ?? 20) * 1000;
+        if (!fenceRef.current) {
+          fenceRef.current = LL.circle(hp, { 
+            radius: fr, 
+            color: telemetry?.missionMode === "ATTACK" ? "#ef4444" : "#22d3ee", 
+            weight: 1.5, 
+            dashArray: "6 6", 
+            fill: false,
+            opacity: 0.8
+          }).addTo(mapRef.current);
+        } else {
+          fenceRef.current.setLatLng(hp);
+          fenceRef.current.setRadius(fr);
+          fenceRef.current.setStyle({ color: telemetry?.missionMode === "ATTACK" ? "#ef4444" : "#22d3ee" });
+        }
+      }
+      
+      // Update drone marker with heading
+      const hasFix = !!telemetry && (telemetry.lat !== 0 || telemetry.lon !== 0);
+      if (hasFix && telemetry) {
+        const p: [number, number] = [telemetry.lat, telemetry.lon];
+        const icon = LL.divIcon({
+          className: "uav-marker",
+          html: `<div style="transform: rotate(${telemetry.heading}deg); filter: drop-shadow(0 0 8px ${telemetry.fault !== "none" ? "#ef4444" : "#22d3ee"})"><svg width="28" height="28" viewBox="0 0 28 28"><polygon points="14,1 23,25 14,20 5,25" fill="${telemetry.fault !== "none" ? "#ef4444" : "#22d3ee"}" stroke="#062a33" stroke-width="2"/></svg></div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+        if (!droneRef.current) droneRef.current = LL.marker(p, { icon, title: "UAV" }).addTo(mapRef.current);
+        else {
+          droneRef.current.setLatLng(p);
+          droneRef.current.setIcon(icon);
+        }
+        
+        // Update trail
+        trail.current = [...trail.current.slice(-119), p];
+        if (!trailRef.current) trailRef.current = LL.polyline(trail.current, { 
+          color: telemetry.fault !== "none" ? "#ef4444" : "#22d3ee", 
+          weight: 2.5, 
+          opacity: 0.8,
+          dashArray: telemetry.missionMode === "ATTACK" ? "10 5" : undefined
+        }).addTo(mapRef.current);
+        else trailRef.current.setLatLngs(trail.current);
+        
+        // Update fence color based on mission mode
+        if (fenceRef.current && telemetry.missionMode === "ATTACK") {
+          fenceRef.current.setStyle({ color: "#ef4444", dashArray: "6 6" });
+        }
+      }
+      
+      // Update target marker
+      if (telemetry?.targetLat != null && telemetry?.targetLon != null) {
+        const tp: [number, number] = [telemetry.targetLat, telemetry.targetLon];
+        if (!tgtRef.current) {
+          tgtRef.current = LL.marker(tp, {
+            icon: LL.divIcon({ 
+              className: "uav-target", 
+              html: '<svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 C7 0 4 5 4 10 C4 17 12 32 12 32 C12 32 20 17 20 10 C20 5 17 0 12 0 Z" fill="#ef4444" stroke="#450a0a"/><circle cx="12" cy="10" r="4" fill="#fff"/><path d="M12 0 L12 4 M12 28 L12 32 M0 16 L4 16 M20 16 L24 16" stroke="#ef4444" stroke-width="1.5"/></svg>', 
+              iconSize: [24, 32], 
+              iconAnchor: [12, 32] 
+            }),
+            title: "Target",
+          }).addTo(mapRef.current);
+        } else tgtRef.current.setLatLng(tp);
+        
+        // Auto-pan to target when set
+        if (!telemetry.targetReached) {
+          map.panTo(tp, { animate: true, duration: 0.35 });
+        }
+      } else if (tgtRef.current) {
+        tgtRef.current.remove();
+        tgtRef.current = null;
+      }
+    });
+  });
+
+  return (
+    <div>
+      <div ref={divRef} className={styles.mapCanvas} style={{ height: 420, width: "100%", borderRadius: 8, overflow: "hidden", background: "#0b1c26", position: "relative" }}>
+        {/* Dark mode overlay for map */}
+        <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", padding: "4px 8px", borderRadius: 4, fontSize: 10, color: "#8b949e" }}>
+          OpenStreetMap · No API key · Click to set target
+        </div>
+      </div>
+      <div className={styles.trendNote}>Real map — click to set destination waypoint · circle is the surveillance/geofence (red for ATTACK mode)</div>
+    </div>
   );
 }

@@ -1017,6 +1017,87 @@
   .customGrid { grid-template-columns: 1fr; }
 }
 
+/* ---------- flight control / map / failsafe ---------- */
+.flightPanel {
+  max-width: 1560px;
+  margin: 0 auto 14px;
+  padding: 0 clamp(12px, 1.6vw, 16px);
+}
+.flightPanel > .panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.flightPanel > .panelTitle h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.flightGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+.mapWrap {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: rgba(4, 12, 17, 0.72);
+}
+.mapCanvas :global(.leaflet-tile-pane) {
+  filter: brightness(0.72) saturate(0.72) contrast(1.08);
+}
+.mapCanvas :global(.leaflet-control-zoom),
+.mapCanvas :global(.leaflet-control-attribution) {
+  filter: brightness(0.9);
+}
+.mapWrap > div:first-child { min-height: 420px; }
+.mapWrap button { white-space: nowrap; }
+.failsafeBanner {
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+/* leaflet marker resets (divIcons must not look like default pins) */
+:global(.uav-marker) {
+  background: none;
+  border: none;
+}
+:global(.uav-home) {
+  background: none;
+  border: none;
+}
+:global(.uav-target) {
+  background: none;
+  border: none;
+}
+:global(.leaflet-container) {
+  font-family: inherit;
+}
+
+@media (max-width: 1100px) {
+  .flightGrid {
+    grid-template-columns: 1fr;
+  }
+  .mapWrap > div:first-child { min-height: 360px; }
+}
+
+@media (max-width: 760px) {
+  .shell { padding: 14px 10px 28px; }
+  .topbar { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .topbar h1 { font-size: 18px; }
+  .statusCluster { width: 100%; flex-wrap: wrap; }
+  .dashboardGrid { gap: 10px; }
+  .flightPanel { padding: 0; }
+  .mapWrap > div:first-child { min-height: 300px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scenarioButton, .offlineBannerButton, .dashboardGrid > *, .fill { transition: none; animation: none; }
 }
