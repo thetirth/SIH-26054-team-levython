@@ -1,0 +1,104 @@
+:root {
+  /* base surfaces */
+  --bg: #0a0d10;
+  --bg-panel: #10151a;
+  --bg-panel-raised: #141b21;
+
+  /* glassmorphism */
+  --glass-bg: rgba(16, 21, 26, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(12px);
+
+  /* structure */
+  --line: #212d34;
+  --line-strong: #33454f;
+
+  /* text */
+  --text: #e4edef;
+  --muted: #6e7d84;
+
+  /* status — matched to real avionics caution/warning conventions */
+  --cyan: #49d3d6;
+  --green: #57d999;
+  --amber: #e8ac3d;
+  --red: #ff6152;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+code,
+pre {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) var(--bg-panel);
+}
+
+/* Animations */
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes subtleGlow {
+  0% { filter: drop-shadow(0 0 2px currentColor); }
+  50% { filter: drop-shadow(0 0 6px currentColor); }
+  100% { filter: drop-shadow(0 0 2px currentColor); }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@keyframes rotateGradient {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

@@ -1,0 +1,198 @@
+{
+  "dataset": {
+    "file": "engine_data.csv",
+    "rows": 45812,
+    "columns": 38,
+    "missions": 100,
+    "engines": 5,
+    "healthy_missions": 20,
+    "faulty_missions": 80
+  },
+  "anomaly_stats": {
+    "anomalous_rows": 14038,
+    "nominal_rows": 31774,
+    "anomaly_pct": 30.64
+  },
+  "scenario_distribution": {
+    "high_altitude": 12496,
+    "normal": 12435,
+    "hot_weather": 11246,
+    "rapid_throttle": 9635
+  },
+  "fault_distribution": {
+    "none": 20,
+    "misfire": 10,
+    "injector_abnormality": 10,
+    "cooling_degradation": 10,
+    "lubrication_issue": 10,
+    "sensor_drift": 10,
+    "combustion_instability": 10,
+    "overheating": 10,
+    "abnormal_vibration": 10
+  },
+  "sensor_ranges": {
+    "altitude_m": {
+      "min": 0.0,
+      "max": 6309.888,
+      "mean": 3840.008,
+      "std": 2092.521
+    },
+    "airspeed_kt": {
+      "min": 0.0,
+      "max": 101.99,
+      "mean": 76.517,
+      "std": 26.706
+    },
+    "ambient_temp": {
+      "min": -18.732,
+      "max": 42.186,
+      "mean": 5.166,
+      "std": 15.328
+    },
+    "throttle_pct": {
+      "min": 0.15,
+      "max": 1.0,
+      "mean": 0.776,
+      "std": 0.199
+    },
+    "engine_age_hours": {
+      "min": 396.806,
+      "max": 833.509,
+      "mean": 565.286,
+      "std": 147.436
+    },
+    "rpm": {
+      "min": 1291.769,
+      "max": 5583.504,
+      "mean": 4332.74,
+      "std": 1044.851
+    },
+    "engine_load": {
+      "min": 0.175,
+      "max": 1.0,
+      "mean": 0.777,
+      "std": 0.198
+    },
+    "fuel_flow": {
+      "min": 0.5,
+      "max": 24.549,
+      "mean": 10.0,
+      "std": 4.06
+    },
+    "egt": {
+      "min": 419.37,
+      "max": 792.23,
+      "mean": 681.318,
+      "std": 84.202
+    },
+    "cht": {
+      "min": 50.13,
+      "max": 171.63,
+      "mean": 92.279,
+      "std": 17.414
+    },
+    "oil_temp": {
+      "min": 27.216,
+      "max": 98.585,
+      "mean": 53.022,
+      "std": 11.706
+    },
+    "oil_pressure": {
+      "min": 0.0,
+      "max": 60.992,
+      "mean": 41.957,
+      "std": 11.621
+    },
+    "vibration": {
+      "min": 0.0,
+      "max": 0.356,
+      "mean": 0.101,
+      "std": 0.051
+    },
+    "vib_1x": {
+      "min": 0.0,
+      "max": 0.312,
+      "mean": 0.091,
+      "std": 0.048
+    },
+    "vib_2x": {
+      "min": 0.0,
+      "max": 0.179,
+      "mean": 0.03,
+      "std": 0.022
+    },
+    "vib_05x": {
+      "min": 0.0,
+      "max": 0.117,
+      "mean": 0.014,
+      "std": 0.012
+    },
+    "battery_voltage": {
+      "min": 11.547,
+      "max": 13.36,
+      "mean": 13.024,
+      "std": 0.168
+    },
+    "alternator_voltage": {
+      "min": 12.568,
+      "max": 14.562,
+      "mean": 13.952,
+      "std": 0.229
+    },
+    "battery_soc": {
+      "min": 91.093,
+      "max": 96.773,
+      "mean": 93.466,
+      "std": 1.157
+    },
+    "injection_timing": {
+      "min": 15.947,
+      "max": 25.257,
+      "mean": 21.4,
+      "std": 1.534
+    }
+  },
+  "model_performance": {
+    "fault_classifier": {
+      "model": "ExtraTreesClassifier (n=220)",
+      "accuracy_pct": 80.71,
+      "split": "GroupShuffleSplit by mission_id (80/20)"
+    },
+    "rul_regressor": {
+      "model": "ExtraTreesRegressor (n=220)",
+      "mae_cycles": 7.81,
+      "rmse_cycles": 14.11,
+      "r2": 0.9383
+    },
+    "anomaly_detector": {
+      "model": "IsolationForest (n=180, contam=0.05)",
+      "roc_auc": 0.7503
+    }
+  },
+  "top_features": {
+    "ambient_temp": 0.0426,
+    "battery_soc": 0.0428,
+    "injection_timing": 0.0519,
+    "oil_pressure": 0.0569,
+    "vib_05x": 0.06,
+    "vibration": 0.0605,
+    "vib_2x": 0.0966,
+    "oil_temp": 0.1035,
+    "cht": 0.1342,
+    "engine_age_hours": 0.1495
+  },
+  "charts_generated": [
+    "01_correlation_heatmap.png",
+    "02_sensor_distributions_boxplot.png",
+    "03_pca_fault_separation.png",
+    "04_rul_prediction_scatter.png",
+    "05_confusion_matrix.png",
+    "06_anomaly_roc_curve.png",
+    "07_feature_importance.png",
+    "08_mission_profile_traces.png",
+    "09_degradation_severity.png",
+    "10_engine_age_vs_health.png",
+    "11_flight_phase_distribution.png",
+    "12_scenario_fault_heatmap.png"
+  ]
+}

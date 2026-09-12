@@ -1,0 +1,41 @@
+{
+  "baseline_honest": {
+    "ad_f1": 0.723,
+    "ad_auc": 0.893,
+    "clf_acc": 0.818,
+    "clf_macro_f1": 0.657,
+    "rul_mae": 10.67,
+    "rul_r2": 0.878,
+    "note": "random mission split, 7/8 fault classes in test"
+  },
+  "ad": {
+    "winner": "mahalanobis",
+    "val_f1": {
+      "iforest": 0.4758,
+      "autoencoder": 0.6521,
+      "pca": 0.6602,
+      "mahalanobis": 0.7979
+    },
+    "test_f1": 0.7899,
+    "test_auc": 0.9277
+  },
+  "clf": {
+    "winner": "hgb_eng",
+    "val_macro_f1": {
+      "et_eng": 0.6173,
+      "et_eng_shallow": 0.6147,
+      "hgb_eng": 0.7175
+    },
+    "test_acc": 0.7359,
+    "test_macro_f1": 0.7527
+  },
+  "rul": {
+    "winner": "hgb_1000",
+    "val_mae": {
+      "hgb_500": 5.7,
+      "hgb_1000": 5.6
+    },
+    "test_mae": 6.45,
+    "test_r2": 0.9399
+  }
+}

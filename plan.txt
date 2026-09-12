@@ -1,0 +1,155 @@
+Build an AI-Enabled Real-Time Digital Twin System for Health Monitoring, 
+Fault Prediction and Mission Reliability Enhancement of Aero Piston 
+Engines used in MALE UAVs (DRDO / SIH26054). This is a defence-domain 
+software prototype — no physical engine available, so DRDO's own 
+deliverables explicitly permit "simulated or real engine datasets." 
+Build a physics-grounded simulated engine as the data source, structured 
+so it could later be swapped for a real ECU/CAN feed with minimal 
+rework. Build in this exact phase order, validating each phase before 
+moving to the next, and summarize progress + flag decisions after each.
+
+=====================================================================
+PHASE 1 — Digital Twin Core Framework (Section A of the brief)
+=====================================================================
+- Build a physics-informed virtual engine model combining: thermodynamic 
+  equations (Otto-cycle energy balance, heat transfer), engine 
+  performance maps (power/torque/efficiency curves vs. RPM and throttle), 
+  and a data-driven correction layer — this is the brief's explicit 
+  "hybrid thermodynamic + data-driven models" requirement
+- Model how altitude and ambient temperature affect air density, 
+  combustion efficiency, and thermal behavior (this is the actual 
+  high-altitude/hot-weather physics the brief calls for under Section E)
+- Design the architecture to be modular for future scalability — 
+  separate the engine model, data ingestion layer, ML layer, and 
+  dashboard as independently swappable components
+- Implement real-time data ingestion via CAN bus/SocketCAN-style message 
+  framing (CAN ID, DLC, payload bytes) representing an ECU/FADEC 
+  interface, per the brief's explicit acquisition method
+- Support both local/edge processing and a cloud-or-local-server 
+  analytics split (document which computations belong where)
+
+=====================================================================
+PHASE 2 — Health Monitoring System (Section B)
+=====================================================================
+Continuously monitor and compute health indices for exactly these 
+engine parameters, as specified:
+- RPM
+- Cylinder Head Temperature (CHT)
+- Exhaust Gas Temperature (EGT)
+- Oil Pressure & Temperature
+- Fuel flow
+- Vibration signatures (simulate as an accelerometer-style time series, 
+  extract frequency-domain features)
+- Battery/Alternator health
+- Injection timing parameters
+Ground each parameter's normal operating range in published IC 
+engine/UAV propulsion reference data (e.g. Rotax 912-class engines 
+commonly used in MALE UAV platforms) — cite the reference in code 
+comments, don't invent arbitrary numbers.
+
+=====================================================================
+PHASE 3 — Fault Detection & Predictive Analytics (Section C)
+=====================================================================
+Build an FMEA-style fault taxonomy (failure mode, effect, detection 
+method, severity) covering exactly these fault types, each injected 
+into the simulator with a physically realistic progression curve 
+(gradual degradation, not step functions):
+- Misfire conditions
+- Injector abnormalities
+- Cooling degradation (brief says "coding degradation" — likely a typo 
+  for "cooling degradation," implement as cooling system efficiency loss)
+- Lubrication issues
+- Sensor drift/failure
+- Combustion instability
+- Overheating trends
+- Abnormal vibration patterns
+Generate a labeled synthetic dataset: healthy runs + runs with each 
+fault type, with fault-onset timestamps as ground truth for training/eval.
+
+=====================================================================
+PHASE 4 — AI/ML Layer (Section D)
+=====================================================================
+- Anomaly detection algorithms: implement and compare at least two 
+  approaches (e.g. Isolation Forest vs. Autoencoder), document rationale 
+  for the deployment choice
+- Remaining Useful Life (RUL) estimation model, validated with 
+  train/test split BY ENGINE RUN, not by row (avoids data leakage — 
+  a judge will ask about this)
+- Trend analysis module (degradation trend visualization over time)
+- Predictive maintenance recommendation logic (rule-based or ML-driven, 
+  translating model outputs into actionable advisories)
+- Add explainability (SHAP or equivalent) for every fault prediction — 
+  this directly answers the brief's "Explainable AI for fault diagnosis" 
+  innovation area
+- Report precision/recall/F1 per fault type and MAE/RMSE for RUL — 
+  not just aggregate accuracy
+
+=====================================================================
+PHASE 5 — Simulation & Replay Capability (Section E)
+=====================================================================
+- Store completed simulation runs (full sensor time series + fault 
+  events + labels) for replay
+- Implement on-demand simulation of named mission/environmental 
+  scenarios, exactly as listed in the brief:
+  - High altitude operation
+  - Endurance mission (long-duration steady-state)
+  - Hot-weather operation
+  - Rapid throttle transitions
+- Support replay of historical mission data with the trained models 
+  running inference on it, so judges can watch a past "flight" being 
+  diagnosed live
+
+=====================================================================
+PHASE 6 — Visualization Dashboard (Section F)
+=====================================================================
+Build an HMI supporting exactly these views:
+- Real-time engine health status
+- Fault alerts (with severity + SHAP-based "why" explanation)
+- Engine efficiency trends
+- Maintenance advisory panel
+- Mission-wise health reports (exportable, e.g. PDF — gives judges a 
+  tangible deliverable artifact)
+Use Streamlit for hackathon speed, or React+FastAPI if timeline allows.
+
+=====================================================================
+PHASE 7 — Edge AI & Deployment Considerations (Innovation Areas)
+=====================================================================
+- Quantize/compress the trained models (ONNX export, pruning), 
+  benchmark inference latency and memory footprint as if targeting an 
+  embedded edge device onboard the UAV — answers "Edge AI for UAV 
+  applications" / "lightweight onboard analytics"
+- Document the split: what runs on-edge (lightweight anomaly flagging) 
+  vs. what runs at ground control station (full RUL/trend analysis)
+- Write a short design paragraph (not full implementation) on secure 
+  telemetry architecture — e.g. AES-256 + mutual TLS — answering 
+  "Secure telemetry architecture" without over-engineering for a 
+  hackathon timeline
+- Optionally note how a federated learning approach could let a fleet 
+  of UAVs improve the shared model without centralizing raw engine data 
+  — answers "Federated learning approaches" as a discussion point if 
+  time doesn't allow implementation
+
+=====================================================================
+PHASE 8 — Deliverables Package (matches brief's "Deliverables Expected")
+=====================================================================
+Assemble exactly what DRDO asked for:
+1. Functional prototype/software demonstrator (Phases 1-6 running end to end)
+2. Digital twin architecture design (one diagram: simulator → CAN 
+   framing → fault injection → feature pipeline → ML models → 
+   edge/ground split → dashboard)
+3. Engine simulation model (Phase 1, documented)
+4. AI/ML-based anomaly detection module (Phase 4, with metrics)
+5. Visualization dashboard (Phase 6)
+6. Demonstration using simulated engine datasets (explicitly note this 
+   satisfies the brief's own "simulated or real" allowance)
+7. Technical documentation and deployment roadmap: physics assumptions, 
+   validation methodology, current limitations (no real-engine 
+   validation yet) as honest future work, and what changes when this is 
+   connected to a real ECU/CAN feed in production
+8. FMEA table from Phase 3 as a standalone reference document
+
+After each phase, show me validation numbers (metrics, sample outputs) 
+before proceeding, and flag any design decision that needs my input. 
+Use Python: numpy, scipy, pandas for the physics simulation; 
+scikit-learn/pytorch for ML; python-can for CAN framing; shap for 
+explainability; Streamlit or React+FastAPI for the dashboard.

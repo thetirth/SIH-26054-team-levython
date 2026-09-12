@@ -1,0 +1,138 @@
+{
+  "split": {
+    "train": 61,
+    "val": 19,
+    "test": 20,
+    "test_rows": 9316
+  },
+  "ad": {
+    "superv": {
+      "auc": 0.9819,
+      "ap": 0.9646,
+      "f1_at_0.5": 0.8893
+    },
+    "mahalanobis": {
+      "auc": 0.9286,
+      "ap": 0.8932,
+      "f1_at_trainval95_thr": 0.7946,
+      "f1_at_shipped_thr": 0.8035
+    },
+    "iforest": {
+      "auc": 0.7381,
+      "ap": 0.5903,
+      "f1_at_trainval95_thr": 0.4168
+    },
+    "pca": {
+      "auc": 0.7946,
+      "ap": 0.6707,
+      "f1_at_trainval95_thr": 0.5844
+    },
+    "autoencoder": {
+      "auc": 0.8351,
+      "ap": 0.7565,
+      "f1_at_trainval95_thr": 0.6261
+    }
+  },
+  "thresholds_trainval95": {
+    "superv": 0.5,
+    "mahalanobis": 38.24534,
+    "iforest": 0.09726,
+    "pca": 0.10761,
+    "autoencoder": 0.16788
+  },
+  "ad_shipped_mahalanobis_threshold": 32.60768,
+  "clf": {
+    "accuracy": 0.8337,
+    "macro_f1": 0.8334,
+    "per_class": {
+      "abnormal_vibration": {
+        "precision": 0.9971,
+        "recall": 0.9744,
+        "f1": 0.9856,
+        "support": 352
+      },
+      "combustion_instability": {
+        "precision": 0.9297,
+        "recall": 0.8473,
+        "f1": 0.8866,
+        "support": 406
+      },
+      "cooling_degradation": {
+        "precision": 0.5367,
+        "recall": 0.4987,
+        "f1": 0.517,
+        "support": 381
+      },
+      "injector_abnormality": {
+        "precision": 0.9037,
+        "recall": 0.9932,
+        "f1": 0.9463,
+        "support": 293
+      },
+      "lubrication_issue": {
+        "precision": 0.9747,
+        "recall": 0.9747,
+        "f1": 0.9747,
+        "support": 435
+      },
+      "misfire": {
+        "precision": 0.8896,
+        "recall": 0.9236,
+        "f1": 0.9063,
+        "support": 288
+      },
+      "overheating": {
+        "precision": 0.7829,
+        "recall": 0.8707,
+        "f1": 0.8245,
+        "support": 464
+      },
+      "sensor_drift": {
+        "precision": 0.6462,
+        "recall": 0.6069,
+        "f1": 0.6259,
+        "support": 346
+      }
+    }
+  },
+  "rul": {
+    "mae": 6.57,
+    "rmse": 15.03,
+    "r2": 0.9404,
+    "n": 2965,
+    "per_fault_mae": {
+      "abnormal_vibration": 3.98,
+      "combustion_instability": 19.18,
+      "cooling_degradation": 7.57,
+      "injector_abnormality": 2.77,
+      "lubrication_issue": 2.57,
+      "misfire": 5.47,
+      "overheating": 2.8,
+      "sensor_drift": 7.51
+    }
+  },
+  "top_features_clf": {
+    "cht_oil_ratio": 0.09745,
+    "vib_2x": 0.07298,
+    "cht_rise": 0.0655,
+    "vib_05x": 0.05977,
+    "engine_age_hours": 0.05547,
+    "cht_margin": 0.04183,
+    "cht": 0.03966,
+    "oil_t_margin": 0.03903,
+    "vib_excess": 0.03727,
+    "oil_temp": 0.0366
+  },
+  "top_features_rul": {
+    "throttle_pct": 0.4551,
+    "altitude_m": 0.2224,
+    "cycle": 0.1837,
+    "airspeed_kt": 0.1422,
+    "rpm": 0.0979,
+    "rpm_per_throttle": 0.0449,
+    "thin_air": 0.0249,
+    "sigma_isa": 0.0153,
+    "cht_cooling_gap": 0.0141,
+    "vib_2x": 0.0116
+  }
+}

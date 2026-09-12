@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "ad_f1": 0.723,
+    "ad_auc": 0.893,
+    "clf_acc": 0.818,
+    "clf_macro_f1": 0.657,
+    "rul_mae": 10.67,
+    "rul_r2": 0.878,
+    "note": "previous shipped pipeline; test had 7/8 classes"
+  },
+  "v5": {
+    "ad_f1": 0.7899,
+    "ad_auc": 0.9277,
+    "clf_acc": 0.8074,
+    "clf_macro": 0.8053,
+    "rul_mae": 6.57,
+    "rul_r2": 0.9404
+  },
+  "v6": {
+    "sup_ad_test_f1": 0.8893,
+    "sup_ad_test_auc": 0.9819,
+    "clf_test_acc": 0.8337,
+    "clf_test_macro_f1": 0.8334,
+    "rul_test_mae": 6.57,
+    "rul_test_r2": 0.9404,
+    "clf_trees": 300,
+    "sup_trees": 200
+  }
+}
