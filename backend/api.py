@@ -215,7 +215,7 @@ def egt_model_c(throttle_pct: float, altitude_m: float, sigma: float, injector_v
 
 @dataclass
 class TwinState:
-    scenario: str = "hot_weather"
+    scenario: str = "endurance"
     started_at: float = field(default_factory=time.monotonic)
     last_update: float = field(default_factory=time.monotonic)
     sequence: int = 0
@@ -945,7 +945,7 @@ def list_scenarios() -> dict:
 
 
 @app.post("/mission/start")
-def start_mission(scenario: str = "hot_weather") -> dict:
+def start_mission(scenario: str = "endurance") -> dict:
     if scenario not in SCENARIOS:
         raise HTTPException(status_code=422, detail=f"Unknown scenario. Choose one of: {', '.join(SCENARIOS)}")
     REPLAY["active"] = False

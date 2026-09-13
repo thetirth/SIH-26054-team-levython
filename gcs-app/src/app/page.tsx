@@ -1588,7 +1588,7 @@ function Speedo({ ias, gs }: { ias: number; gs: number }) {
 }
 
 export default function Home() {
-  const [scenario, setScenario] = useState<ScenarioKey>("hotWeather");
+  const [scenario, setScenario] = useState<ScenarioKey>("endurance");
   const [liveTelemetry, setLiveTelemetry] = useState<Telemetry | null>(null);
   const [history, setHistory] = useState<Telemetry[]>([]);
   const [linkState, setLinkState] = useState<"connecting" | "live" | "offline">("connecting");
@@ -2069,16 +2069,37 @@ export default function Home() {
         )})}
       </section>
 
-      <div style={{ maxWidth: 1560, margin: "0 auto 10px", padding: "0 clamp(12px,1.6vw,16px)", display: "flex", justifyContent: "flex-end" }}>
-        <button
-          type="button"
-          className={styles.btnGhost}
-          onClick={() => setShowFlightControl((visible) => !visible)}
-          aria-expanded={showFlightControl}
-          style={{ padding: "7px 12px", fontSize: 11, borderColor: showFlightControl ? "var(--cyan)" : undefined }}
-        >
-          <Navigation size={13} /> {showFlightControl ? "Hide" : "Open"} Flight Control · Geofence · Failsafe
-        </button>
+      <div className={styles.toolbarBar}>
+        <div className={styles.toolbarInfo}>
+          <span className={styles.toolbarLabel}>MISSION CONTROLS</span>
+          <span className={styles.toolbarHint}>Toggle live panels — the 10 Hz stream keeps running</span>
+        </div>
+        <div className={styles.toolbarActions}>
+          <button
+            type="button"
+            className={`${styles.toolbarButton} ${showFlightControl ? styles.toolbarButtonActive : ""}`}
+            onClick={() => setShowFlightControl((visible) => !visible)}
+            aria-expanded={showFlightControl}
+            aria-pressed={showFlightControl}
+            title="Show or hide the flight-control, geofence and failsafe panel"
+          >
+            <Navigation size={14} />
+            <span>{showFlightControl ? "Hide Flight Control" : "Open Flight Control"}</span>
+            <small>Geofence · Failsafe</small>
+          </button>
+          <button
+            type="button"
+            className={`${styles.toolbarButton} ${showCustom ? styles.toolbarButtonActive : ""}`}
+            onClick={() => setShowCustom((visible) => !visible)}
+            aria-expanded={showCustom}
+            aria-pressed={showCustom}
+            title="Show or hide the custom mission builder"
+          >
+            <Wrench size={14} />
+            <span>{showCustom ? "Hide Custom Builder" : "Open Custom Builder"}</span>
+            <small>Adjust Anything</small>
+          </button>
+        </div>
       </div>
 
       {showCustom ? (
@@ -2133,11 +2154,7 @@ export default function Home() {
             <span style={{ fontFamily: "var(--font-geist-mono)", fontSize: 10, color: "var(--muted)" }}>Tip: drag sliders or type values — Apply re-seeds TwinState + DigitalTwinCore + ML pipeline</span>
           </div>
         </section>
-      ) : (
-        <div style={{ maxWidth: 1560, margin: "0 auto 10px", padding: "0 clamp(12px,1.6vw,16px)", display: "flex", justifyContent: "flex-end" }}>
-          <button type="button" className={styles.btnGhost} onClick={() => setShowCustom(true)} style={{ padding: "6px 12px", fontSize: 11 }}>Open Custom Builder — Adjust Anything</button>
-        </div>
-      )}
+      ) : null}
 
       <section className={styles.dashboardGrid}>
         <div className={styles.scenePanel}>
@@ -2418,59 +2435,63 @@ export default function Home() {
               })()}
             </div>
           )}
-            <div className={styles.missionSection}>
-              <div className={styles.missionHeading}>
-                <ClipboardList size={14} />
-                <span>Mission-wise health reports</span>
-              </div>
-              {replay ? (
-                <div style={{ border: "1px solid var(--cyan)", borderRadius: 8, padding: "8px 10px", marginBottom: 8, background: "rgba(0,255,255,0.04)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
-                    <strong style={{ color: "var(--cyan)" }}>REPLAY M{replay.missionId} {replay.engineId} · {replay.fault.replaceAll("_", " ")}</strong>
-                    <span style={{ opacity: 0.8 }}>{replay.idx + 1} / {replay.rows.length}</span>
-                  </div>
-                  <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.1)", margin: "6px 0", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${((replay.idx + 1) / replay.rows.length) * 100}%`, background: "var(--cyan)" }} />
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
-                      onClick={() => setReplay((cur) => (cur ? { ...cur, playing: !cur.playing } : cur))}>
-                      {replay.playing ? "Pause" : (replay.idx >= replay.rows.length - 1 ? "Replay again" : "Play")}
-                    </button>
-                    <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }} onClick={stopReplay}>
-                      Back to live
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {missions.length === 0 ? (
-                <div className={styles.emptyState}>No mission history yet — run <code>python3 generate_engine_data.py</code> to seed <code>engine_data.csv</code>.</div>
-              ) : (
-                <div className={styles.missionList}>
-                  {missions.slice(0, 6).map((m) => (
-                    <button
-                      type="button"
-                      key={`${m.mission_id}-${m.engine_id}`}
-                      title={`Replay mission ${m.mission_id} at 10 Hz`}
-                      onClick={() => void startReplay(m.mission_id)}
-                      className={`${styles.missionRow} ${m.fault_type === "none" ? styles.healthy : styles.faulted}`}
-                      style={{ width: "100%", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: m.fault_type === 'none' ? 'var(--green)' : 'var(--amber)' }} />
-                        M{m.mission_id} {m.engine_id}
-                      </span>
-                      <span>{m.scenario}</span>
-                      <span className={`${styles.missionFault} ${m.fault_type === "none" ? styles.healthy : styles.faulted}`}>
-                        {m.fault_type.replaceAll("_", " ")}
-                      </span>
-                      <span>{m.cycles}cyc</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className={styles.trendNote}>Source: GET /missions from engine_data.csv · click a row for full 10 Hz replay</div>
+        </section>
+
+        <section className={styles.missionPanel} aria-label="Mission-wise health reports">
+          <div className={styles.panelTitle}>
+            <ClipboardList size={18} />
+            <div>
+              <h2>Mission-wise health reports</h2>
+              <p className={styles.panelSubtitle}>Below subsystem health — real backend history, click a row for full 10 Hz replay</p>
+            </div>
           </div>
+          {replay ? (
+            <div style={{ border: "1px solid var(--cyan)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, background: "rgba(0,255,255,0.04)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                <strong style={{ color: "var(--cyan)" }}>REPLAY M{replay.missionId} {replay.engineId} · {replay.fault.replaceAll("_", " ")}</strong>
+                <span style={{ opacity: 0.8 }}>{replay.idx + 1} / {replay.rows.length}</span>
+              </div>
+              <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.1)", margin: "6px 0", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${((replay.idx + 1) / replay.rows.length) * 100}%`, background: "var(--cyan)" }} />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
+                  onClick={() => setReplay((cur) => (cur ? { ...cur, playing: !cur.playing } : cur))}>
+                  {replay.playing ? "Pause" : (replay.idx >= replay.rows.length - 1 ? "Replay again" : "Play")}
+                </button>
+                <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }} onClick={stopReplay}>
+                  Back to live
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {missions.length === 0 ? (
+            <div className={styles.emptyState}>No mission history yet — run <code>python3 generate_engine_data.py</code> to seed <code>engine_data.csv</code>.</div>
+          ) : (
+            <div className={styles.missionList}>
+              {missions.slice(0, 8).map((m) => (
+                <button
+                  type="button"
+                  key={`${m.mission_id}-${m.engine_id}`}
+                  title={`Replay mission ${m.mission_id} at 10 Hz`}
+                  onClick={() => void startReplay(m.mission_id)}
+                  className={`${styles.missionRow} ${m.fault_type === "none" ? styles.healthy : styles.faulted}`}
+                  style={{ width: "100%", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: m.fault_type === 'none' ? 'var(--green)' : 'var(--amber)' }} />
+                    M{m.mission_id} {m.engine_id}
+                  </span>
+                  <span>{m.scenario}</span>
+                  <span className={`${styles.missionFault} ${m.fault_type === "none" ? styles.healthy : styles.faulted}`}>
+                    {m.fault_type.replaceAll("_", " ")}
+                  </span>
+                  <span>{m.cycles}cyc</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={styles.trendNote}>Source: GET /missions from engine_data.csv · click a row for full 10 Hz replay</div>
         </section>
 
         <section className={styles.advisoryPanel}>
@@ -2566,7 +2587,7 @@ export default function Home() {
             ) : null}
             <div className={styles.flightGrid}>
               <div className={styles.mapWrap}>
-                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} />
+                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} active={false} />
                 <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                   <button type="button" className={styles.btnGhost} style={{ padding: "4px 10px", fontSize: 11 }}
                     onClick={() => { void apiPost("/mission/target").catch(() => undefined); }}>
@@ -2747,7 +2768,7 @@ export default function Home() {
             <div className={styles.flightGrid}>
               {/* Dark mode map with 3D drone synchronization */}
               <div className={styles.mapWrap}>
-                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} />
+                <FlightMap telemetry={display} launch={launch} onTarget={(la, lo) => void sendTarget(la, lo)} active={showFlightControl} />
                 <div className={styles.mapFooter}>
                   <button
                     type="button"
@@ -2834,10 +2855,11 @@ export default function Home() {
 }
 
 // --- Dark mode FlightMap with 3D drone synchronization ---
-function FlightMap({ telemetry, launch, onTarget }: {
+function FlightMap({ telemetry, launch, onTarget, active }: {
   telemetry: Telemetry | null;
   launch: { lat: number; lon: number } | null;
   onTarget: (lat: number, lon: number) => void;
+  active?: boolean;
 }) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
@@ -2847,6 +2869,9 @@ function FlightMap({ telemetry, launch, onTarget }: {
   const fenceRef = useRef<import("leaflet").Circle | null>(null);
   const trailRef = useRef<import("leaflet").Polyline | null>(null);
   const trail = useRef<Array<[number, number]>>([]);
+  const lastElapsedRef = useRef(0);
+  const didInitViewRef = useRef(false);
+  const lastTargetKeyRef = useRef<string | null>(null);
   const onTargetRef = useRef(onTarget);
   onTargetRef.current = onTarget;
 
@@ -2856,10 +2881,12 @@ function FlightMap({ telemetry, launch, onTarget }: {
     (async () => {
       const L = (await import("leaflet")).default;
       if (dead || !divRef.current || mapRef.current) return;
-      // Dark mode map with CartoDB Dark Matter tiles
+      // Always init on the fixed launch coordinate so every scenario
+      // (endurance / heat-stress / custom / replay) starts from the same
+      // view. Per-launch centering happens in the update effects below.
       map = L.map(divRef.current, { zoomControl: true, minZoom: 3, maxZoom: 19 }).setView(
-        launch ? [launch.lat, launch.lon] : [13.0238, 77.627], 12);
-      
+        [13.0238, 77.627], 12);
+
       // Standard OpenStreetMap tiles require no API key or token. The dark
       // panel styling is provided by the surrounding UI, preserving readable
       // roads and terrain labels for operators.
@@ -2869,16 +2896,49 @@ function FlightMap({ telemetry, launch, onTarget }: {
         subdomains: "abc",
         detectRetina: true,
       }).addTo(map);
-      
+
       map.on("click", (e: import("leaflet").LeafletMouseEvent) => onTargetRef.current(e.latlng.lat, e.latlng.lng));
       mapRef.current = map;
+      // If the panel was hidden (display:none) at mount, Leaflet measures a
+      // 0x0 container and renders broken/missing tiles. Repair on next tick.
+      requestAnimationFrame(() => {
+        try { map?.invalidateSize(); } catch { /* not ready */ }
+      });
     })();
     return () => {
       dead = true;
       map?.remove();
       mapRef.current = null;
+      droneRef.current = null;
+      homeRef.current = null;
+      tgtRef.current = null;
+      fenceRef.current = null;
+      trailRef.current = null;
+      trail.current = [];
+      lastElapsedRef.current = 0;
+      didInitViewRef.current = false;
+      lastTargetKeyRef.current = null;
     };
   }, []);
+
+  // Panel is mounted hidden (display:none) until the operator opens Flight
+  // Control. Leaflet must re-measure once it becomes visible, otherwise the
+  // first-opened scenario shows a grey / half-rendered map.
+  useEffect(() => {
+    if (!active) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const t1 = window.setTimeout(() => {
+      try { map.invalidateSize(); } catch { /* ignore */ }
+    }, 60);
+    const t2 = window.setTimeout(() => {
+      try { map.invalidateSize(); } catch { /* ignore */ }
+    }, 300);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [active]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2918,6 +2978,19 @@ function FlightMap({ telemetry, launch, onTarget }: {
         }
       }
       
+      // New sortie / scenario switch resets the clock — drop the previous
+      // mission trail so heat-stress never inherits an endurance track (and
+      // vice versa). Same behaviour for every scenario.
+      if (telemetry) {
+        if (telemetry.elapsedS < lastElapsedRef.current - 1 || telemetry.cycle <= 1) {
+          trail.current = [];
+          try { trailRef.current?.setLatLngs([]); } catch { /* ignore */ }
+          didInitViewRef.current = false;
+          lastTargetKeyRef.current = null;
+        }
+        lastElapsedRef.current = telemetry.elapsedS;
+      }
+
       // Update drone marker with heading
       const hasFix = !!telemetry && (telemetry.lat !== 0 || telemetry.lon !== 0);
       if (hasFix && telemetry) {
@@ -2933,45 +3006,70 @@ function FlightMap({ telemetry, launch, onTarget }: {
           droneRef.current.setLatLng(p);
           droneRef.current.setIcon(icon);
         }
-        
+
+        // Center once per sortie so every scenario opens identically.
+        if (!didInitViewRef.current) {
+          didInitViewRef.current = true;
+          try { map.setView(p, 12, { animate: false }); } catch { /* ignore */ }
+        }
+
         // Update trail
-        trail.current = [...trail.current.slice(-119), p];
-        if (!trailRef.current) trailRef.current = LL.polyline(trail.current, { 
-          color: telemetry.fault !== "none" ? "#ef4444" : "#22d3ee", 
-          weight: 2.5, 
+        const last = trail.current[trail.current.length - 1];
+        if (!last || Math.abs(last[0] - p[0]) > 1e-9 || Math.abs(last[1] - p[1]) > 1e-9) {
+          trail.current = [...trail.current.slice(-119), p];
+        }
+        if (!trailRef.current) trailRef.current = LL.polyline(trail.current, {
+          color: telemetry.fault !== "none" ? "#ef4444" : "#22d3ee",
+          weight: 2.5,
           opacity: 0.8,
           dashArray: telemetry.missionMode === "ATTACK" ? "10 5" : undefined
         }).addTo(mapRef.current);
-        else trailRef.current.setLatLngs(trail.current);
-        
+        else {
+          trailRef.current.setLatLngs(trail.current);
+          try {
+            trailRef.current.setStyle({
+              color: telemetry.fault !== "none" ? "#ef4444" : "#22d3ee",
+              dashArray: telemetry.missionMode === "ATTACK" ? "10 5" : undefined,
+            } as never);
+          } catch { /* ignore */ }
+        }
+
         // Update fence color based on mission mode
         if (fenceRef.current && telemetry.missionMode === "ATTACK") {
           fenceRef.current.setStyle({ color: "#ef4444", dashArray: "6 6" });
         }
+      } else if (launch && !didInitViewRef.current) {
+        // No GPS fix yet (e.g. replay rows carry 0,0) — frame the fence.
+        try { map.setView([launch.lat, launch.lon], 12, { animate: false }); } catch { /* ignore */ }
+        didInitViewRef.current = true;
       }
-      
+
       // Update target marker
       if (telemetry?.targetLat != null && telemetry?.targetLon != null) {
         const tp: [number, number] = [telemetry.targetLat, telemetry.targetLon];
         if (!tgtRef.current) {
           tgtRef.current = LL.marker(tp, {
-            icon: LL.divIcon({ 
-              className: "uav-target", 
-              html: '<svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 C7 0 4 5 4 10 C4 17 12 32 12 32 C12 32 20 17 20 10 C20 5 17 0 12 0 Z" fill="#ef4444" stroke="#450a0a"/><circle cx="12" cy="10" r="4" fill="#fff"/><path d="M12 0 L12 4 M12 28 L12 32 M0 16 L4 16 M20 16 L24 16" stroke="#ef4444" stroke-width="1.5"/></svg>', 
-              iconSize: [24, 32], 
-              iconAnchor: [12, 32] 
+            icon: LL.divIcon({
+              className: "uav-target",
+              html: '<svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 C7 0 4 5 4 10 C4 17 12 32 12 32 C12 32 20 17 20 10 C20 5 17 0 12 0 Z" fill="#ef4444" stroke="#450a0a"/><circle cx="12" cy="10" r="4" fill="#fff"/><path d="M12 0 L12 4 M12 28 L12 32 M0 16 L4 16 M20 16 L24 16" stroke="#ef4444" stroke-width="1.5"/></svg>',
+              iconSize: [24, 32],
+              iconAnchor: [12, 32]
             }),
             title: "Target",
           }).addTo(mapRef.current);
         } else tgtRef.current.setLatLng(tp);
-        
-        // Auto-pan to target when set
-        if (!telemetry.targetReached) {
+
+        // Pan only once per newly-set target so the map never fights the
+        // operator while tracking the UAV in any scenario.
+        const targetKey = `${telemetry.targetLat.toFixed(5)},${telemetry.targetLon!.toFixed(5)}`;
+        if (!telemetry.targetReached && lastTargetKeyRef.current !== targetKey) {
+          lastTargetKeyRef.current = targetKey;
           map.panTo(tp, { animate: true, duration: 0.35 });
         }
       } else if (tgtRef.current) {
         tgtRef.current.remove();
         tgtRef.current = null;
+        lastTargetKeyRef.current = null;
       }
     });
   });
